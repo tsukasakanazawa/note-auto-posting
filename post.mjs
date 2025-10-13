@@ -1,4 +1,4 @@
-import puppeteer from 'puppeteer';
+import { chromium } from 'playwright';
 import fs from 'fs';
 
 // 詳細なログ出力関数
@@ -8,46 +8,40 @@ function log(message) {
 
 async function postToNote() {
     let browser;
+    let context;
+    let page;
+    
     try {
-        log('ブラウザを起動中...');
-        browser = await puppeteer.launch({
-            headless: 'new',
+        log('=== note.com自動投稿開始 ===');
+        log('Playwrightブラウザを起動中...');
+        
+        browser = await chromium.launch({
+            headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-extensions',
                 '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-gpu',
-                '--disable-background-timer-throttling',
-                '--disable-backgrounding-occluded-windows',
-                '--disable-renderer-backgrounding'
-            ],
-            timeout: 60000
+                '--disable-default-apps'
+            ]
         });
 
-        const page = await browser.newPage();
-        
-        // より詳細なログ設定
+        // コンテキストを作成（セッション管理用）
+        context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport: { width: 1366, height: 768 },
+            locale: 'ja-JP',
+            timezoneId: 'Asia/Tokyo'
+        });
+
+        page = await context.newPage();
+
+        // 詳細なログ設定
         page.on('console', msg => log(`ブラウザ: ${msg.text()}`));
         page.on('pageerror', error => log(`ページエラー: ${error.message}`));
         page.on('requestfailed', request => log(`リクエスト失敗: ${request.url()}`));
-
-        // ユーザーエージェントを設定
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        
-        // ビューポートを設定
-        await page.setViewport({ width: 1366, height: 768 });
-
-        log('note.comにアクセス中...');
-        await page.goto('https://note.com/', { 
-            waitUntil: ['networkidle0', 'domcontentloaded'],
-            timeout: 30000 
-        });
-
-        log('ページロード完了');
 
         // セッション情報を復元
         const sessionData = process.env.NOTE_STORAGE_STATE_JSON;
@@ -56,39 +50,44 @@ async function postToNote() {
             try {
                 const state = JSON.parse(sessionData);
                 
-                // LocalStorageを設定
+                // Cookieを設定
+                if (state.cookies && state.cookies.length > 0) {
+                    await context.addCookies(state.cookies);
+                    log(`${state.cookies.length}個のCookieを復元`);
+                }
+
+                // LocalStorageを設定するためにページを読み込み
+                await page.goto('https://note.com/', { waitUntil: 'domcontentloaded' });
+                
                 if (state.localStorage) {
                     await page.evaluate((localStorage) => {
                         for (const [key, value] of Object.entries(localStorage)) {
                             window.localStorage.setItem(key, value);
                         }
                     }, state.localStorage);
+                    log(`${Object.keys(state.localStorage).length}個のLocalStorageアイテムを復元`);
                 }
 
-                // Cookieを設定
-                if (state.cookies && state.cookies.length > 0) {
-                    await page.setCookie(...state.cookies);
-                }
-
-                log('セッション復元完了');
-                
-                // ページを再読み込みしてセッションを適用
-                await page.reload({ waitUntil: 'networkidle0' });
-                log('セッション適用のためのリロード完了');
+                log('✅ セッション復元完了');
             } catch (error) {
-                log(`セッション復元エラー: ${error.message}`);
+                log(`⚠️ セッション復元エラー: ${error.message}`);
             }
+        } else {
+            // セッション情報がない場合はnote.comにアクセス
+            await page.goto('https://note.com/', { waitUntil: 'domcontentloaded' });
         }
 
-        // 記事を読み込み
+        // 記事データを読み込み
         log('生成された記事を読み込み中...');
         const articleData = JSON.parse(fs.readFileSync('article.json', 'utf8'));
-        log(`記事データ: タイトル="${articleData.title}", 本文長=${articleData.content.length}文字`);
+        log(`記事データ読み込み完了:`);
+        log(`- タイトル: "${articleData.title}"`);
+        log(`- 本文文字数: ${articleData.content.length}文字`);
 
         // 投稿ページに移動
         log('投稿ページに移動中...');
         await page.goto('https://note.com/n/new', { 
-            waitUntil: ['networkidle0', 'domcontentloaded'],
+            waitUntil: 'networkidle',
             timeout: 30000 
         });
 
@@ -98,266 +97,357 @@ async function postToNote() {
 
         // ログイン状態を確認
         if (currentUrl.includes('/signin') || currentUrl.includes('/login')) {
-            throw new Error('ログインが必要です。セッション情報を確認してください。');
+            throw new Error('❌ ログインが必要です。セッション情報を確認してください。');
         }
 
-        // DOMが完全に読み込まれるまで待機
-        log('DOM読み込み待機中...');
+        // ページが完全に読み込まれるまで待機
+        log('ページの完全読み込みを待機中...');
         await page.waitForTimeout(3000);
 
-        // 現在のページの構造を確認
-        log('ページ構造を分析中...');
-        const pageStructure = await page.evaluate(() => {
-            // タイトル入力欄の候補を探す
-            const titleSelectors = [
-                'input[placeholder*="タイトル"]',
-                'input[data-testid*="title"]',
-                'textarea[placeholder*="タイトル"]',
-                '.note-editor-title input',
-                '[contenteditable="true"]'
-            ];
+        // ページの構造を分析
+        log('🔍 ページ構造を分析中...');
+        const pageInfo = await page.evaluate(() => {
+            const allInputs = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
+                .map((el, index) => ({
+                    index,
+                    tagName: el.tagName,
+                    type: el.type || 'unknown',
+                    placeholder: el.placeholder || '',
+                    contentEditable: el.contentEditable,
+                    className: el.className,
+                    id: el.id,
+                    visible: el.offsetParent !== null,
+                    text: el.textContent?.slice(0, 50) || ''
+                }));
 
-            const results = {};
-            titleSelectors.forEach((selector, index) => {
-                const element = document.querySelector(selector);
-                results[`selector_${index}`] = {
-                    selector: selector,
-                    found: !!element,
-                    count: document.querySelectorAll(selector).length,
-                    tagName: element ? element.tagName : null,
-                    className: element ? element.className : null,
-                    placeholder: element ? element.placeholder : null
-                };
-            });
+            const allButtons = Array.from(document.querySelectorAll('button'))
+                .map((el, index) => ({
+                    index,
+                    text: el.textContent?.trim() || '',
+                    className: el.className,
+                    disabled: el.disabled,
+                    visible: el.offsetParent !== null
+                }));
 
-            // すべてのinput要素を確認
-            const allInputs = Array.from(document.querySelectorAll('input, textarea')).map(el => ({
-                tagName: el.tagName,
-                type: el.type,
-                placeholder: el.placeholder,
-                className: el.className,
-                id: el.id,
-                name: el.name
-            }));
-
-            return { titleSelectors: results, allInputs: allInputs };
+            return { inputs: allInputs, buttons: allButtons };
         });
 
-        log('ページ構造分析結果:');
-        log(JSON.stringify(pageStructure, null, 2));
+        log('📊 ページ構造分析結果:');
+        log(`- Input要素: ${pageInfo.inputs.length}個`);
+        log(`- Button要素: ${pageInfo.buttons.length}個`);
 
-        // より柔軟なセレクタでタイトル入力欄を探す
-        log('タイトル入力欄を探索中...');
-        let titleInput = null;
+        // デバッグ用：要素の詳細を出力
+        pageInfo.inputs.forEach(input => {
+            if (input.visible) {
+                log(`  Input[${input.index}]: ${input.tagName}, placeholder="${input.placeholder}", class="${input.className}"`);
+            }
+        });
+
+        pageInfo.buttons.forEach(button => {
+            if (button.visible && button.text) {
+                log(`  Button[${button.index}]: "${button.text}", class="${button.className}"`);
+            }
+        });
+
+        // タイトル入力欄を探索
+        log('🎯 タイトル入力欄を探索中...');
+        let titleElement = null;
+
+        // Playwrightの強力なセレクタを使用
         const titleSelectors = [
             'input[placeholder*="タイトル"]',
-            'input[placeholder*="title"]',
+            'input[placeholder*="title"]', 
             'textarea[placeholder*="タイトル"]',
-            'input[data-testid*="title"]',
             '[contenteditable="true"]',
-            '.note-editor input',
-            '.editor-title input',
-            'input[type="text"]'
+            'input[type="text"]',
+            '[data-testid*="title"]',
+            '.editor input',
+            '.title input'
         ];
 
         for (const selector of titleSelectors) {
             try {
-                log(`セレクタ試行: ${selector}`);
-                await page.waitForSelector(selector, { timeout: 5000 });
-                titleInput = await page.$(selector);
-                if (titleInput) {
-                    log(`タイトル入力欄発見: ${selector}`);
+                log(`🔍 セレクタ試行: ${selector}`);
+                const element = page.locator(selector).first();
+                if (await element.isVisible({ timeout: 3000 })) {
+                    titleElement = element;
+                    log(`✅ タイトル入力欄発見: ${selector}`);
                     break;
                 }
             } catch (error) {
-                log(`セレクタ失敗: ${selector} - ${error.message}`);
+                log(`❌ セレクタ失敗: ${selector}`);
             }
         }
 
-        if (!titleInput) {
-            // 最後の手段：すべてのinput要素を試す
-            log('すべてのinput要素を確認中...');
-            const allInputs = await page.$$('input, textarea');
-            for (let i = 0; i < allInputs.length; i++) {
-                const inputInfo = await page.evaluate(el => ({
-                    placeholder: el.placeholder,
-                    type: el.type,
-                    visible: el.offsetParent !== null
-                }), allInputs[i]);
-                
-                log(`Input ${i}: ${JSON.stringify(inputInfo)}`);
-                
-                if (inputInfo.visible && (inputInfo.type === 'text' || !inputInfo.type)) {
-                    titleInput = allInputs[i];
-                    log(`タイトル入力欄として採用: Input ${i}`);
-                    break;
-                }
+        // セレクタで見つからない場合は、最初の表示されているテキスト入力欄を使用
+        if (!titleElement) {
+            log('📋 全input要素から適切な要素を探索中...');
+            const visibleInputs = pageInfo.inputs.filter(inp => 
+                inp.visible && 
+                (inp.type === 'text' || inp.type === 'unknown' || inp.contentEditable === 'true')
+            );
+
+            if (visibleInputs.length > 0) {
+                const firstInput = visibleInputs[0];
+                titleElement = page.locator(`input, textarea, [contenteditable="true"]`).nth(firstInput.index);
+                log(`✅ タイトル入力欄として採用: Input[${firstInput.index}]`);
             }
         }
 
-        if (!titleInput) {
-            throw new Error('タイトル入力欄が見つかりません');
+        if (!titleElement) {
+            throw new Error('❌ タイトル入力欄が見つかりません');
         }
 
         // タイトルを入力
-        log('タイトルを入力中...');
-        await titleInput.click();
+        log('📝 タイトルを入力中...');
+        await titleElement.click();
         await page.waitForTimeout(1000);
-        await titleInput.type(articleData.title, { delay: 100 });
-        log('タイトル入力完了');
+        await titleElement.fill(''); // 既存内容をクリア
+        await titleElement.type(articleData.title, { delay: 100 });
+        log('✅ タイトル入力完了');
 
-        // 本文入力欄を探す
-        log('本文入力欄を探索中...');
-        let contentArea = null;
+        // 本文入力欄を探索
+        log('🎯 本文入力欄を探索中...');
+        let contentElement = null;
+
         const contentSelectors = [
-            '[contenteditable="true"]',
-            '.editor-content',
-            '.note-editor-content',
-            'textarea',
+            '[contenteditable="true"]:not(input)',
+            '.editor [contenteditable="true"]',
+            'textarea:not([placeholder*="タイトル"])',
             '.ql-editor',
             '[data-testid*="editor"]',
-            '.editor .ql-editor'
+            '.note-editor',
+            '.editor-content'
         ];
 
         for (const selector of contentSelectors) {
             try {
-                log(`本文セレクタ試行: ${selector}`);
-                await page.waitForSelector(selector, { timeout: 5000 });
-                const elements = await page.$$(selector);
+                log(`🔍 本文セレクタ試行: ${selector}`);
+                const elements = page.locator(selector);
+                const count = await elements.count();
                 
-                // タイトル以外の編集可能な要素を探す
-                for (const element of elements) {
-                    const isTitle = await page.evaluate((el, titleEl) => el === titleEl, element, titleInput);
-                    if (!isTitle) {
-                        contentArea = element;
-                        log(`本文入力欄発見: ${selector}`);
-                        break;
+                for (let i = 0; i < count; i++) {
+                    const element = elements.nth(i);
+                    if (await element.isVisible({ timeout: 2000 })) {
+                        // タイトル入力欄でないことを確認
+                        const isSameAsTitle = await element.evaluate((el, titleEl) => {
+                            return el === titleEl;
+                        }, await titleElement.elementHandle());
+                        
+                        if (!isSameAsTitle) {
+                            contentElement = element;
+                            log(`✅ 本文入力欄発見: ${selector} (${i}番目)`);
+                            break;
+                        }
                     }
                 }
                 
-                if (contentArea) break;
+                if (contentElement) break;
             } catch (error) {
-                log(`本文セレクタ失敗: ${selector} - ${error.message}`);
+                log(`❌ 本文セレクタ失敗: ${selector}`);
             }
         }
 
-        if (!contentArea) {
-            throw new Error('本文入力欄が見つかりません');
+        if (!contentElement) {
+            // 最後の手段：タイトル以外のcontenteditable要素を探す
+            log('📋 全contenteditable要素から本文欄を探索中...');
+            const allEditables = page.locator('[contenteditable="true"]');
+            const count = await allEditables.count();
+            
+            for (let i = 0; i < count; i++) {
+                const element = allEditables.nth(i);
+                if (await element.isVisible()) {
+                    const isSameAsTitle = await element.evaluate((el, titleEl) => {
+                        return el === titleEl;
+                    }, await titleElement.elementHandle());
+                    
+                    if (!isSameAsTitle) {
+                        contentElement = element;
+                        log(`✅ 本文入力欄として採用: contenteditable[${i}]`);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!contentElement) {
+            throw new Error('❌ 本文入力欄が見つかりません');
         }
 
         // 本文を入力
-        log('本文を入力中...');
-        await contentArea.click();
+        log('📝 本文を入力中...');
+        await contentElement.click();
         await page.waitForTimeout(1000);
         
-        // 本文を段落ごとに分けて入力
-        const paragraphs = articleData.content.split('\n\n');
-        for (const paragraph of paragraphs) {
-            if (paragraph.trim()) {
-                await contentArea.type(paragraph, { delay: 50 });
-                await contentArea.press('Enter');
-                await contentArea.press('Enter');
-                await page.waitForTimeout(500);
+        // 既存内容をクリア
+        await contentElement.fill('');
+        await page.waitForTimeout(500);
+
+        // 本文を段落ごとに入力
+        const paragraphs = articleData.content.split('\n\n').filter(p => p.trim());
+        log(`📄 ${paragraphs.length}個の段落を入力予定`);
+
+        for (let i = 0; i < paragraphs.length; i++) {
+            const paragraph = paragraphs[i].trim();
+            if (paragraph) {
+                log(`📝 段落${i+1}/${paragraphs.length}を入力中... (${paragraph.length}文字)`);
+                await contentElement.type(paragraph, { delay: 30 });
+                
+                // 最後の段落でなければ改行を追加
+                if (i < paragraphs.length - 1) {
+                    await contentElement.press('Enter');
+                    await contentElement.press('Enter');
+                }
+                
+                await page.waitForTimeout(300);
             }
         }
-        log('本文入力完了');
+        
+        log('✅ 本文入力完了');
 
-        // 公開ボタンを探す
-        log('公開ボタンを探索中...');
+        // 少し待機してから公開処理へ
+        await page.waitForTimeout(2000);
+
+        // 公開ボタンを探索（下書き投稿を優先）
+        log('🎯 投稿ボタンを探索中...');
+        let publishButton = null;
+
+        // 下書き保存を優先的に探す
         const publishSelectors = [
+            'button:has-text("下書き")',
+            'button:has-text("下書きとして保存")',
+            'button:has-text("保存")',
             'button:has-text("公開する")',
+            'button:has-text("投稿")',
             'button[data-testid*="publish"]',
-            'button:contains("公開")',
+            'button[data-testid*="save"]',
             '.publish-button',
-            '.btn-publish',
-            'button[type="submit"]'
+            '.save-button'
         ];
 
-        let publishButton = null;
         for (const selector of publishSelectors) {
             try {
-                log(`公開ボタンセレクタ試行: ${selector}`);
-                
-                if (selector.includes('has-text') || selector.includes('contains')) {
-                    // テキストベースの検索
-                    publishButton = await page.$x("//button[contains(text(), '公開')]");
-                    if (publishButton.length > 0) {
-                        publishButton = publishButton[0];
-                        log('公開ボタン発見（XPath）');
-                        break;
-                    }
-                } else {
-                    await page.waitForSelector(selector, { timeout: 5000 });
-                    publishButton = await page.$(selector);
-                    if (publishButton) {
-                        log(`公開ボタン発見: ${selector}`);
-                        break;
-                    }
+                log(`🔍 投稿ボタンセレクタ試行: ${selector}`);
+                const element = page.locator(selector).first();
+                if (await element.isVisible({ timeout: 3000 })) {
+                    publishButton = element;
+                    log(`✅ 投稿ボタン発見: ${selector}`);
+                    break;
                 }
             } catch (error) {
-                log(`公開ボタンセレクタ失敗: ${selector} - ${error.message}`);
+                log(`❌ 投稿ボタンセレクタ失敗: ${selector}`);
             }
         }
 
-        // 全てのボタンを確認
+        // セレクタで見つからない場合、全ボタンから適切なものを探す
         if (!publishButton) {
-            log('全ボタンを確認中...');
-            const allButtons = await page.$$('button');
-            for (let i = 0; i < allButtons.length; i++) {
-                const buttonText = await page.evaluate(el => el.textContent, allButtons[i]);
-                log(`Button ${i}: "${buttonText}"`);
+            log('📋 全ボタンから投稿ボタンを探索中...');
+            const publishButtons = pageInfo.buttons.filter(btn => 
+                btn.visible && 
+                (btn.text.includes('下書き') || 
+                 btn.text.includes('保存') || 
+                 btn.text.includes('公開') || 
+                 btn.text.includes('投稿'))
+            );
+
+            if (publishButtons.length > 0) {
+                // 下書き関連を優先
+                const draftButton = publishButtons.find(btn => 
+                    btn.text.includes('下書き') || btn.text.includes('保存')
+                );
                 
-                if (buttonText.includes('公開') || buttonText.includes('投稿') || buttonText.includes('送信')) {
-                    publishButton = allButtons[i];
-                    log(`公開ボタンとして採用: Button ${i} - "${buttonText}"`);
+                const targetButton = draftButton || publishButtons[0];
+                publishButton = page.locator('button').nth(targetButton.index);
+                log(`✅ 投稿ボタンとして採用: "${targetButton.text}"`);
+            }
+        }
+
+        if (!publishButton) {
+            throw new Error('❌ 投稿/保存ボタンが見つかりません');
+        }
+
+        // 投稿ボタンをクリック
+        const buttonText = await publishButton.textContent();
+        log(`🚀 投稿ボタンをクリック: "${buttonText}"`);
+        await publishButton.click();
+
+        // 処理完了を待機
+        await page.waitForTimeout(3000);
+
+        // 確認ダイアログがある場合の処理
+        try {
+            log('🔍 確認ダイアログをチェック中...');
+            const confirmButtons = [
+                'button:has-text("確認")',
+                'button:has-text("OK")',
+                'button:has-text("公開")',
+                'button:has-text("保存")'
+            ];
+
+            for (const selector of confirmButtons) {
+                const element = page.locator(selector).first();
+                if (await element.isVisible({ timeout: 2000 })) {
+                    log(`✅ 確認ボタン発見: ${selector}`);
+                    await element.click();
+                    await page.waitForTimeout(2000);
                     break;
                 }
             }
-        }
-
-        if (!publishButton) {
-            throw new Error('公開ボタンが見つかりません');
-        }
-
-        // 公開ボタンをクリック
-        log('公開ボタンをクリック中...');
-        await publishButton.click();
-        await page.waitForTimeout(3000);
-
-        // 最終確認ダイアログがある場合の処理
-        try {
-            const confirmButton = await page.$x("//button[contains(text(), '公開') or contains(text(), '確認') or contains(text(), 'OK')]");
-            if (confirmButton.length > 0) {
-                log('最終確認ボタンをクリック');
-                await confirmButton[0].click();
-                await page.waitForTimeout(2000);
-            }
         } catch (error) {
-            log(`最終確認処理: ${error.message}`);
+            log(`⚠️ 確認ダイアログ処理: ${error.message}`);
         }
 
         // 投稿完了の確認
         await page.waitForTimeout(5000);
         const finalUrl = page.url();
-        log(`最終URL: ${finalUrl}`);
+        log(`📍 最終URL: ${finalUrl}`);
 
-        if (finalUrl.includes('/n/n') || finalUrl !== 'https://note.com/n/new') {
-            log('✅ 投稿が正常に完了しました！');
-            return { success: true, url: finalUrl };
+        // 成功判定
+        const success = finalUrl.includes('/n/n') || finalUrl !== 'https://note.com/n/new';
+        
+        if (success) {
+            log('🎉 投稿が正常に完了しました！');
+            log(`📰 記事URL: ${finalUrl}`);
+            return { 
+                success: true, 
+                url: finalUrl,
+                title: articleData.title,
+                contentLength: articleData.content.length
+            };
         } else {
             log('⚠️ 投稿の完了を確認できませんでした');
-            return { success: false, message: '投稿完了の確認ができませんでした' };
+            return { 
+                success: false, 
+                message: '投稿完了の確認ができませんでした',
+                finalUrl: finalUrl
+            };
         }
 
     } catch (error) {
         log(`❌ エラー発生: ${error.message}`);
-        log(`スタックトレース: ${error.stack}`);
+        log(`📍 エラー発生時URL: ${page ? page.url() : 'N/A'}`);
+        
+        // エラー時のスクリーンショット撮影
+        if (page) {
+            try {
+                await page.screenshot({ path: 'error-screenshot.png', fullPage: true });
+                log('📸 エラー時のスクリーンショットを保存しました');
+            } catch (screenshotError) {
+                log(`📸 スクリーンショット保存失敗: ${screenshotError.message}`);
+            }
+        }
+        
         throw error;
     } finally {
+        if (context) {
+            log('🔄 ブラウザコンテキストを終了中...');
+            await context.close();
+        }
         if (browser) {
-            log('ブラウザを終了中...');
+            log('🔄 ブラウザを終了中...');
             await browser.close();
         }
+        log('=== note.com自動投稿終了 ===');
     }
 }
 
@@ -365,12 +455,12 @@ async function postToNote() {
 if (process.env.NODE_ENV !== 'test') {
     postToNote()
         .then(result => {
-            log('投稿処理完了');
-            log(JSON.stringify(result, null, 2));
+            log('✅ 投稿処理完了');
+            console.log(JSON.stringify(result, null, 2));
             process.exit(0);
         })
         .catch(error => {
-            log(`投稿処理失敗: ${error.message}`);
+            log(`❌ 投稿処理失敗: ${error.message}`);
             process.exit(1);
         });
 }
