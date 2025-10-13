@@ -5,7 +5,7 @@ const anthropic = new Anthropic({
 });
 
 async function generateArticle(theme, target, message, cta) {
-  console.log('🧠 AI記事生成を開始...');
+  console.log('AI記事生成を開始...');
   
   const prompt = `
 あなたは優秀なライターです。以下の条件で魅力的なnote記事を作成してください。
@@ -44,7 +44,7 @@ async function generateArticle(theme, target, message, cta) {
     });
 
     const content = response.content[0].text;
-    console.log('✅ AI記事生成完了');
+    console.log('AI記事生成完了');
     
     // JSONを抽出
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -55,7 +55,7 @@ async function generateArticle(theme, target, message, cta) {
     }
     
   } catch (error) {
-    console.error('❌ AI記事生成エラー:', error.message);
+    console.error('AI記事生成エラー:', error.message);
     throw error;
   }
 }
