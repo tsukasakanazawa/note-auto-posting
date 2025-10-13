@@ -38,23 +38,13 @@ jobs:
         
     - name: Install dependencies
       run: |
-        npm install playwright @anthropic-ai/sdk
-        npx playwright install chromium
+        npm install puppeteer @anthropic-ai/sdk
         
-    - name: Generate AI Article
-      id: generate
+    - name: Generate and Post Article
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      run: |
-        ARTICLE=$(node ai-writer.mjs "${{ github.event.inputs.theme }}" "${{ github.event.inputs.target }}" "${{ github.event.inputs.message }}" "${{ github.event.inputs.cta }}")
-        echo "article=$ARTICLE" >> $GITHUB_OUTPUT
-        
-    - name: Post to note
-      env:
         NOTE_STORAGE_STATE_JSON: ${{ secrets.NOTE_STORAGE_STATE_JSON }}
       run: |
-        echo '${{ env.NOTE_STORAGE_STATE_JSON }}' > note-state.json
-        TITLE=$(echo '${{ steps.generate.outputs.article }}' | jq -r '.title')
-        CONTENT=$(echo '${{ steps.generate.outputs.article }}' | jq -r '.content')
-        TAGS=$(echo '${{ steps.generate.outputs.article }}' | jq -r '.tags | join(",")')
-        node post.mjs "$TITLE" "$CONTENT" "$TAGS" "${{ github.event.inputs.is_public }}"
+        echo "AI記事生成開始"
+        node post.mjs ai "${{ github.event.inputs.theme }}" "${{ github.event.inputs.target }}" "${{ github.event.inputs.message }}" "${{ github.event.inputs.cta }}" "${{ github.event.inputs.is_public }}"
+        echo "処理完了"
