@@ -1,27 +1,31 @@
-name: Note Auto Posting
+name: AI Note Auto Posting
 
 on:
   workflow_dispatch:
     inputs:
-      title:
-        description: '記事タイトル'
+      theme:
+        description: '記事のテーマ'
         required: true
-        default: 'テスト記事'
-      content:
-        description: '記事本文'
+        default: 'AI活用術'
+      target:
+        description: '想定読者'
         required: true
-        default: 'これはテスト投稿です。'
-      tags:
-        description: 'タグ（カンマ区切り）'
+        default: 'ビジネスパーソン'
+      message:
+        description: '伝えたい核メッセージ'
+        required: true
+        default: 'AIで生産性向上'
+      cta:
+        description: '読後のアクション'
         required: false
-        default: '自動化,テスト'
+        default: '実際に試してみる'
       is_public:
         description: '公開する（true/false）'
         required: true
         default: 'false'
 
 jobs:
-  post-to-note:
+  ai-generate-and-post:
     runs-on: ubuntu-latest
     
     steps:
@@ -34,12 +38,23 @@ jobs:
         
     - name: Install dependencies
       run: |
-        npm install playwright
+        npm install playwright @anthropic-ai/sdk
         npx playwright install chromium
+        
+    - name: Generate AI Article
+      id: generate
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        ARTICLE=$(node ai-writer.mjs "${{ github.event.inputs.theme }}" "${{ github.event.inputs.target }}" "${{ github.event.inputs.message }}" "${{ github.event.inputs.cta }}")
+        echo "article=$ARTICLE" >> $GITHUB_OUTPUT
         
     - name: Post to note
       env:
         NOTE_STORAGE_STATE_JSON: ${{ secrets.NOTE_STORAGE_STATE_JSON }}
       run: |
         echo '${{ env.NOTE_STORAGE_STATE_JSON }}' > note-state.json
-        node post.mjs "${{ github.event.inputs.title }}" "${{ github.event.inputs.content }}" "${{ github.event.inputs.tags }}" "${{ github.event.inputs.is_public }}"
+        TITLE=$(echo '${{ steps.generate.outputs.article }}' | jq -r '.title')
+        CONTENT=$(echo '${{ steps.generate.outputs.article }}' | jq -r '.content')
+        TAGS=$(echo '${{ steps.generate.outputs.article }}' | jq -r '.tags | join(",")')
+        node post.mjs "$TITLE" "$CONTENT" "$TAGS" "${{ github.event.inputs.is_public }}"
