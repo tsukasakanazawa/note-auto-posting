@@ -64,46 +64,106 @@ async function postToNote(title, content, isPublic = false) {
       timeout: 30000 
     });
     
-    await delay(3000);
+    await delay(5000);
     
-    // タイトル入力
-    console.log('タイトル入力中...');
-    await page.waitForSelector('input[placeholder*="タイトル"]', { timeout: 10000 });
-    await page.click('input[placeholder*="タイトル"]');
-    await page.type('input[placeholder*="タイトル"]', title);
+    // 複数のタイトルセレクタを試行
+    console.log('タイトル入力欄を探しています...');
+    const titleSelectors = [
+      'input[placeholder*="タイトル"]',
+      'input[placeholder*="title"]',
+      'input[data-testid="title-input"]',
+      '.title-input',
+      '[data-name="title"]',
+      'textarea[placeholder*="タイトル"]',
+      'input[type="text"]'
+    ];
     
-    await delay(2000);
-    
-    // 本文入力
-    console.log('本文入力中...');
-    await page.waitForSelector('.editor', { timeout: 10000 });
-    await page.click('.editor');
-    await page.type('.editor', content);
-    
-    await delay(3000);
-    
-    // 公開設定
-    if (isPublic) {
-      console.log('記事を公開設定に変更中...');
+    let titleFound = false;
+    for (const selector of titleSelectors) {
       try {
-        await page.waitForSelector('button[data-testid="publish-button"]', { timeout: 5000 });
-        await page.click('button[data-testid="publish-button"]');
-        await delay(2000);
-        
-        // 公開確認ボタン
-        await page.waitForSelector('button[data-testid="publish-confirm-button"]', { timeout: 5000 });
-        await page.click('button[data-testid="publish-confirm-button"]');
-        console.log('記事を公開しました！');
+        console.log(`タイトルセレクタ試行: ${selector}`);
+        await page.waitForSelector(selector, { timeout: 3000 });
+        await page.click(selector);
+        await page.type(selector, title);
+        console.log('タイトル入力成功！');
+        titleFound = true;
+        break;
       } catch (error) {
-        console.log('公開ボタンが見つからないため、下書き保存します');
-        await saveDraft(page);
+        console.log(`セレクタ ${selector} で失敗: ${error.message}`);
+        continue;
       }
-    } else {
-      await saveDraft(page);
+    }
+    
+    if (!titleFound) {
+      throw new Error('タイトル入力欄が見つかりませんでした');
     }
     
     await delay(3000);
-    console.log('投稿完了！');
+    
+    // 複数の本文セレクタを試行
+    console.log('本文入力欄を探しています...');
+    const contentSelectors = [
+      '.editor',
+      '[data-testid="editor"]',
+      '.note-editor',
+      '[contenteditable="true"]',
+      'textarea',
+      '.content-editor'
+    ];
+    
+    let contentFound = false;
+    for (const selector of contentSelectors) {
+      try {
+        console.log(`本文セレクタ試行: ${selector}`);
+        await page.waitForSelector(selector, { timeout: 3000 });
+        await page.click(selector);
+        await page.type(selector, content);
+        console.log('本文入力成功！');
+        contentFound = true;
+        break;
+      } catch (error) {
+        console.log(`セレクタ ${selector} で失敗: ${error.message}`);
+        continue;
+      }
+    }
+    
+    if (!contentFound) {
+      throw new Error('本文入力欄が見つかりませんでした');
+    }
+    
+    await delay(5000);
+    
+    // 保存処理（公開設定は一旦スキップして下書き保存）
+    console.log('下書き保存を試行中...');
+    const saveSelectors = [
+      'button[data-testid="save-draft-button"]',
+      'button:contains("下書き保存")',
+      'button:contains("保存")',
+      '.save-button',
+      '[data-name="save"]'
+    ];
+    
+    let saved = false;
+    for (const selector of saveSelectors) {
+      try {
+        console.log(`保存セレクタ試行: ${selector}`);
+        await page.waitForSelector(selector, { timeout: 3000 });
+        await page.click(selector);
+        console.log('保存成功！');
+        saved = true;
+        break;
+      } catch (error) {
+        console.log(`セレクタ ${selector} で失敗: ${error.message}`);
+        continue;
+      }
+    }
+    
+    if (!saved) {
+      console.log('保存ボタンが見つからない場合があります（手動保存が必要かもしれません）');
+    }
+    
+    await delay(3000);
+    console.log('投稿処理完了！');
     
   } catch (error) {
     console.error('投稿エラー:', error);
@@ -112,17 +172,6 @@ async function postToNote(title, content, isPublic = false) {
     if (browser) {
       await browser.close();
     }
-  }
-}
-
-async function saveDraft(page) {
-  try {
-    console.log('下書き保存中...');
-    await page.waitForSelector('button[data-testid="save-draft-button"]', { timeout: 5000 });
-    await page.click('button[data-testid="save-draft-button"]');
-    console.log('下書きとして保存しました！');
-  } catch (error) {
-    console.log('下書き保存ボタンが見つからない場合があります:', error.message);
   }
 }
 
