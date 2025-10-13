@@ -1,0 +1,45 @@
+name: Note Auto Posting
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: '記事タイトル'
+        required: true
+        default: 'テスト記事'
+      content:
+        description: '記事本文'
+        required: true
+        default: 'これはテスト投稿です。'
+      tags:
+        description: 'タグ（カンマ区切り）'
+        required: false
+        default: '自動化,テスト'
+      is_public:
+        description: '公開する（true/false）'
+        required: true
+        default: 'false'
+
+jobs:
+  post-to-note:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install dependencies
+      run: |
+        npm install playwright
+        npx playwright install chromium
+        
+    - name: Post to note
+      env:
+        NOTE_STORAGE_STATE_JSON: ${{ secrets.NOTE_STORAGE_STATE_JSON }}
+      run: |
+        echo '${{ env.NOTE_STORAGE_STATE_JSON }}' > note-state.json
+        node post.mjs "${{ github.event.inputs.title }}" "${{ github.event.inputs.content }}" "${{ github.event.inputs.tags }}" "${{ github.event.inputs.is_public }}"
