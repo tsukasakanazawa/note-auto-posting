@@ -1,4 +1,5 @@
 import puppeteer from 'puppeteer';
+import { generateArticle } from './ai-writer.mjs';
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -13,32 +14,20 @@ async function postToNote(title, content) {
     
     const page = await browser.newPage();
     
-    // 直接投稿ページに移動（ログイン状態を使用）
     console.log('投稿ページに移動中...');
     await page.goto('https://note.com/post', { timeout: 30000 });
     await delay(10000);
     
-    // ページのタイトルを確認
-    const pageTitle = await page.title();
-    console.log(`ページタイトル: ${pageTitle}`);
-    
-    // 現在のURLを確認
-    const currentUrl = page.url();
-    console.log(`現在のURL: ${currentUrl}`);
-    
-    // すべての入力要素を探す
     const inputs = await page.$$('input, textarea, [contenteditable]');
     console.log(`見つかった入力要素数: ${inputs.length}`);
     
     if (inputs.length > 0) {
-      // 最初の入力要素にタイトル入力
-      console.log('最初の入力要素にタイトル入力...');
+      console.log('タイトル入力中...');
       await inputs[0].click();
       await inputs[0].type(title);
       
       if (inputs.length > 1) {
-        // 2番目の入力要素に本文入力
-        console.log('2番目の入力要素に本文入力...');
+        console.log('本文入力中...');
         await inputs[1].click();
         await inputs[1].type(content);
       }
@@ -56,12 +45,30 @@ async function postToNote(title, content) {
 
 async function main() {
   try {
-    // 固定のテスト内容で実行（AI生成スキップ）
-    const title = 'テスト投稿';
-    const content = 'これはテスト投稿です。';
+    const mode = process.argv[2] || 'ai';
     
-    console.log('投稿テスト開始...');
-    await postToNote(title, content);
+    if (mode === 'ai') {
+      // AI記事生成モード
+      const theme = process.argv[3] || 'AI活用術';
+      const target = process.argv[4] || 'ビジネスパーソン';
+      const message = process.argv[5] || 'AIで生産性向上';
+      const cta = process.argv[6] || '実際に試してみる';
+      
+      console.log('AI記事生成中...');
+      const article = await generateArticle(theme, target, message, cta);
+      
+      const lines = article.split('\n').filter(line => line.trim());
+      const title = lines[0].replace(/^#+\s*/, '');
+      const content = lines.slice(1).join('\n').trim();
+      
+      console.log(`生成タイトル: ${title}`);
+      console.log(`記事長: ${content.length}文字`);
+      
+      await postToNote(title, content);
+    } else {
+      // テストモード
+      await postToNote('テスト投稿', 'これはテスト投稿です。');
+    }
     
   } catch (error) {
     console.error('実行エラー:', error);
@@ -70,4 +77,3 @@ async function main() {
 }
 
 main();
-
