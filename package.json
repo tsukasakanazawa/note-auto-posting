@@ -1,16 +1,21 @@
 {
   "name": "github-actions-note",
   "version": "1.0.0",
-  "description": "",
+  "description": "NOTE自動投稿システム",
   "main": "index.js",
+  "type": "module",
   "scripts": {
+    "login": "node login-note.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": ["note", "automation", "github-actions"],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "playwright": "^1.55.1"
+    "playwright": "^1.55.1",
+    "ai": "^3.4.0",
+    "@ai-sdk/anthropic": "^0.0.50",
+    "@anthropic-ai/claude-code": "^0.1.0",
+    "marked": "^12.0.0"
   }
 }
