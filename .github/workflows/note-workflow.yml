@@ -48,3 +48,4 @@ jobs:
         echo "AI記事生成開始"
         node post.mjs ai "${{ github.event.inputs.theme }}" "${{ github.event.inputs.target }}" "${{ github.event.inputs.message }}" "${{ github.event.inputs.cta }}" "${{ github.event.inputs.is_public }}"
         echo "処理完了"
+
