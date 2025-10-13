@@ -44,8 +44,9 @@ jobs:
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         NOTE_STORAGE_STATE_JSON: ${{ secrets.NOTE_STORAGE_STATE_JSON }}
+        NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
+        NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
       run: |
         echo "AI記事生成開始"
         node post.mjs ai "${{ github.event.inputs.theme }}" "${{ github.event.inputs.target }}" "${{ github.event.inputs.message }}" "${{ github.event.inputs.cta }}" "${{ github.event.inputs.is_public }}"
         echo "処理完了"
-
