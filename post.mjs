@@ -9,7 +9,7 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
   try {
     // draft.jsonの存在確認と読み込み
     if (!fs.existsSync('draft.json')) {
-      throw new Error('draft.jsonが見つかりません。記事生成フェーズが正常に完了していない可能性があります。');
+      throw new Error('draft.jsonが見つかりません。');
     }
 
     console.log('draft.json読み込み中...');
@@ -17,7 +17,7 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
     const article = JSON.parse(draftContent);
 
     if (!article.title || !article.content) {
-      throw new Error('draft.jsonの内容が不完全です。titleまたはcontentが見つかりません。');
+      throw new Error('draft.jsonの内容が不完全です。');
     }
 
     console.log(`記事タイトル: ${article.title}`);
@@ -28,7 +28,7 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
     const password = process.env.NOTE_PASSWORD;
 
     if (!email || !password) {
-      console.log('認証情報が設定されていません。記事内容のみ保存します。');
+      console.log('認証情報が設定されていません。');
       await saveArticleToFile(article, isPublished);
       return true;
     }
@@ -37,12 +37,7 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
     console.log('ブラウザ起動中...');
     browser = await chromium.launch({ 
       headless: true,
-      args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage',
-        '--disable-web-security'
-      ]
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
     
     const context = await browser.newContext({
@@ -57,7 +52,6 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
     const loginSuccess = await performLogin(page, email, password);
     
     if (!loginSuccess) {
-      console.log('ログインに失敗しました。記事内容をファイルに保存します。');
       await saveArticleToFile(article, isPublished);
       return true;
     }
@@ -65,35 +59,47 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
     // ステップ2: 記事作成ページに移動
     console.log('=== STEP 2: 記事作成ページに移動 ===');
     await page.goto('https://note.com/note/new', { 
-      waitUntil: 'networkidle', 
+      waitUntil: 'domcontentloaded', 
       timeout: 30000 
     });
     
-    await page.waitForTimeout(3000);
-    console.log('記事作成ページにアクセス完了');
+    await page.waitForTimeout(5000); // ページ読み込み待機を長めに
+    console.log('記事作成ページアクセス完了');
+    console.log('現在のURL:', page.url());
 
-    // ステップ3: 記事内容入力
-    console.log('=== STEP 3: 記事内容入力 ===');
-    const inputSuccess = await inputArticleContent(page, article);
+    // ステップ3: ページ構造の詳細調査
+    console.log('=== STEP 3: ページ構造調査 ===');
+    await debugPageStructure(page);
+
+    // ステップ4: 記事内容入力（改善版）
+    console.log('=== STEP 4: 記事内容入力 ===');
+    const inputSuccess = await inputArticleContentAdvanced(page, article);
     
     if (!inputSuccess) {
-      console.log('記事内容の入力に失敗しました。記事内容をファイルに保存します。');
+      console.log('記事内容の入力に失敗しました。');
       await saveArticleToFile(article, isPublished);
       return true;
     }
 
-    // ステップ4: 投稿実行
-    console.log('=== STEP 4: 投稿実行 ===');
-    const postSuccess = await executePost(page, isPublished);
+    // ステップ5: スクリーンショット撮影（デバッグ用）
+    try {
+      await page.screenshot({ path: 'note-page-debug.png', fullPage: true });
+      console.log('デバッグ用スクリーンショットを撮影しました');
+    } catch (e) {
+      console.log('スクリーンショット撮影に失敗');
+    }
+
+    // ステップ6: 投稿実行
+    console.log('=== STEP 5: 投稿実行 ===');
+    const postSuccess = await executePostAdvanced(page, isPublished);
     
     if (postSuccess) {
       const currentUrl = page.url();
       console.log('記事投稿成功！');
       console.log(`記事URL: ${currentUrl}`);
-      
       await saveSuccessResult(article, currentUrl, isPublished);
     } else {
-      console.log('投稿は完了しましたが、確認できませんでした。');
+      console.log('投稿処理が完了しましたが、確認できませんでした。');
       await saveArticleToFile(article, isPublished);
     }
 
@@ -102,7 +108,6 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
   } catch (error) {
     console.error('note.com投稿エラー:', error);
     
-    // エラー時でも記事内容を保存
     try {
       const draftContent = fs.readFileSync('draft.json', 'utf8');
       const article = JSON.parse(draftContent);
@@ -124,30 +129,31 @@ async function performLogin(page, email, password) {
   try {
     console.log('ログインページに移動中...');
     await page.goto('https://note.com/login', { 
-      waitUntil: 'networkidle', 
+      waitUntil: 'domcontentloaded', 
       timeout: 30000 
     });
 
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
     // メールアドレス入力
     console.log('メールアドレス入力中...');
     const emailSelectors = [
       'input[type="email"]',
       'input[name="email"]',
-      'input[placeholder*="メール"]',
-      'input[placeholder*="mail" i]',
-      'form input[type="text"]'
+      'input[placeholder*="メール" i]',
+      'input[placeholder*="mail" i]'
     ];
 
     let emailInputted = false;
     for (const selector of emailSelectors) {
       try {
-        await page.waitForSelector(selector, { timeout: 3000 });
-        await page.fill(selector, email);
-        console.log(`メールアドレス入力完了: ${selector}`);
-        emailInputted = true;
-        break;
+        const element = await page.locator(selector).first();
+        if (await element.isVisible({ timeout: 2000 })) {
+          await element.fill(email);
+          console.log(`メールアドレス入力完了: ${selector}`);
+          emailInputted = true;
+          break;
+        }
       } catch (e) {
         continue;
       }
@@ -159,19 +165,18 @@ async function performLogin(page, email, password) {
 
     // パスワード入力
     console.log('パスワード入力中...');
-    const passwordSelectors = [
-      'input[type="password"]',
-      'input[name="password"]'
-    ];
+    const passwordSelectors = ['input[type="password"]', 'input[name="password"]'];
 
     let passwordInputted = false;
     for (const selector of passwordSelectors) {
       try {
-        await page.waitForSelector(selector, { timeout: 3000 });
-        await page.fill(selector, password);
-        console.log(`パスワード入力完了: ${selector}`);
-        passwordInputted = true;
-        break;
+        const element = await page.locator(selector).first();
+        if (await element.isVisible({ timeout: 2000 })) {
+          await element.fill(password);
+          console.log(`パスワード入力完了: ${selector}`);
+          passwordInputted = true;
+          break;
+        }
       } catch (e) {
         continue;
       }
@@ -186,18 +191,19 @@ async function performLogin(page, email, password) {
     const loginSelectors = [
       'button[type="submit"]',
       'button:has-text("ログイン")',
-      'input[type="submit"]',
-      'form button'
+      'input[type="submit"]'
     ];
 
     let loginClicked = false;
     for (const selector of loginSelectors) {
       try {
-        await page.waitForSelector(selector, { timeout: 3000 });
-        await page.click(selector);
-        console.log(`ログインボタンクリック完了: ${selector}`);
-        loginClicked = true;
-        break;
+        const element = await page.locator(selector).first();
+        if (await element.isVisible({ timeout: 2000 })) {
+          await element.click();
+          console.log(`ログインボタンクリック完了: ${selector}`);
+          loginClicked = true;
+          break;
+        }
       } catch (e) {
         continue;
       }
@@ -211,7 +217,6 @@ async function performLogin(page, email, password) {
     console.log('ログイン処理完了を待機中...');
     await page.waitForTimeout(5000);
     
-    // ログイン成功の確認
     const currentUrl = page.url();
     if (currentUrl.includes('/login')) {
       throw new Error('ログインページから移動していません');
@@ -226,79 +231,178 @@ async function performLogin(page, email, password) {
   }
 }
 
-async function inputArticleContent(page, article) {
+async function debugPageStructure(page) {
   try {
-    console.log('記事フォーム要素を探しています...');
+    console.log('=== ページ構造詳細調査 ===');
     
-    // タイトル入力
+    // ページタイトルとURL
+    console.log('ページタイトル:', await page.title());
+    console.log('現在のURL:', page.url());
+    
+    // 全ての入力要素を調査
+    console.log('=== 入力要素一覧 ===');
+    const inputs = await page.locator('input').all();
+    console.log(`入力要素数: ${inputs.length}`);
+    
+    for (let i = 0; i < Math.min(inputs.length, 10); i++) {
+      const input = inputs[i];
+      const type = await input.getAttribute('type').catch(() => 'unknown');
+      const name = await input.getAttribute('name').catch(() => 'unknown');
+      const placeholder = await input.getAttribute('placeholder').catch(() => 'unknown');
+      const id = await input.getAttribute('id').catch(() => 'unknown');
+      const className = await input.getAttribute('class').catch(() => 'unknown');
+      
+      console.log(`Input ${i}: type=${type}, name=${name}, placeholder=${placeholder}, id=${id}, class=${className}`);
+    }
+    
+    // 全てのテキストエリア要素を調査
+    console.log('=== テキストエリア要素一覧 ===');
+    const textareas = await page.locator('textarea').all();
+    console.log(`テキストエリア要素数: ${textareas.length}`);
+    
+    for (let i = 0; i < textareas.length; i++) {
+      const textarea = textareas[i];
+      const name = await textarea.getAttribute('name').catch(() => 'unknown');
+      const placeholder = await textarea.getAttribute('placeholder').catch(() => 'unknown');
+      const id = await textarea.getAttribute('id').catch(() => 'unknown');
+      const className = await textarea.getAttribute('class').catch(() => 'unknown');
+      
+      console.log(`Textarea ${i}: name=${name}, placeholder=${placeholder}, id=${id}, class=${className}`);
+    }
+    
+    // contenteditable要素を調査
+    console.log('=== Contenteditable要素一覧 ===');
+    const editables = await page.locator('[contenteditable="true"]').all();
+    console.log(`Contenteditable要素数: ${editables.length}`);
+    
+    for (let i = 0; i < editables.length; i++) {
+      const editable = editables[i];
+      const className = await editable.getAttribute('class').catch(() => 'unknown');
+      const id = await editable.getAttribute('id').catch(() => 'unknown');
+      const role = await editable.getAttribute('role').catch(() => 'unknown');
+      
+      console.log(`Contenteditable ${i}: class=${className}, id=${id}, role=${role}`);
+    }
+    
+    // ボタン要素を調査
+    console.log('=== ボタン要素一覧 ===');
+    const buttons = await page.locator('button').all();
+    console.log(`ボタン要素数: ${buttons.length}`);
+    
+    for (let i = 0; i < Math.min(buttons.length, 10); i++) {
+      const button = buttons[i];
+      const text = await button.textContent().catch(() => 'unknown');
+      const type = await button.getAttribute('type').catch(() => 'unknown');
+      const className = await button.getAttribute('class').catch(() => 'unknown');
+      
+      console.log(`Button ${i}: text="${text}", type=${type}, class=${className}`);
+    }
+    
+  } catch (debugError) {
+    console.error('ページ構造調査エラー:', debugError.message);
+  }
+}
+
+async function inputArticleContentAdvanced(page, article) {
+  try {
+    console.log('改善版記事内容入力を開始...');
+    
+    // より多くのセレクタパターンでタイトル入力を試行
     const titleSelectors = [
       'input[placeholder*="タイトル" i]',
-      'input[name="title"]',
+      'input[name*="title" i]',
+      'input[id*="title" i]',
+      'input[class*="title" i]',
       'textarea[placeholder*="タイトル" i]',
+      'div[contenteditable="true"][role="textbox"]',
+      '[data-testid*="title"]',
       '.editor-title input',
-      '.title-input'
+      '.title-input',
+      '.note-title input'
     ];
 
+    console.log('タイトル入力を試行中...');
     let titleInputted = false;
+    
     for (const selector of titleSelectors) {
       try {
-        await page.waitForSelector(selector, { timeout: 5000 });
-        await page.fill(selector, article.title);
-        console.log(`タイトル入力完了: ${article.title}`);
-        titleInputted = true;
-        break;
+        const elements = await page.locator(selector).all();
+        for (const element of elements) {
+          if (await element.isVisible({ timeout: 1000 })) {
+            await element.click();
+            await page.waitForTimeout(500);
+            await element.fill(article.title);
+            console.log(`タイトル入力成功: ${selector} - "${article.title}"`);
+            titleInputted = true;
+            break;
+          }
+        }
+        if (titleInputted) break;
       } catch (e) {
         continue;
       }
     }
 
-    if (!titleInputted) {
-      console.log('タイトル入力フィールドが見つかりませんでした');
-    }
-
-    // 本文入力
-    console.log('本文入力中...');
+    // より多くのセレクタパターンで本文入力を試行
     const contentSelectors = [
       'div[contenteditable="true"]',
       'textarea[placeholder*="本文" i]',
-      'textarea[name="content"]',
+      'textarea[name*="content" i]',
+      'textarea[id*="content" i]',
+      'textarea[class*="content" i]',
+      '[data-testid*="editor"]',
+      '[data-testid*="content"]',
       '.editor-content',
       '.note-editor textarea',
-      'textarea'
+      '.note-content textarea',
+      'textarea',
+      '[role="textbox"]'
     ];
 
+    console.log('本文入力を試行中...');
     const plainContent = convertMarkdownToPlainText(article.content);
-    
     let contentInputted = false;
+    
     for (const selector of contentSelectors) {
       try {
-        await page.waitForSelector(selector, { timeout: 5000 });
-        
-        // contenteditable の場合
-        if (selector.includes('contenteditable')) {
-          await page.click(selector);
-          await page.waitForTimeout(1000);
-          await page.keyboard.type(plainContent);
-        } else {
-          await page.fill(selector, plainContent);
+        const elements = await page.locator(selector).all();
+        for (const element of elements) {
+          if (await element.isVisible({ timeout: 1000 })) {
+            await element.click();
+            await page.waitForTimeout(500);
+            
+            // contenteditable の場合は特別処理
+            if (selector.includes('contenteditable')) {
+              await element.clear();
+              await page.keyboard.type(plainContent, { delay: 10 });
+            } else {
+              await element.fill(plainContent);
+            }
+            
+            console.log(`本文入力成功: ${selector}`);
+            contentInputted = true;
+            break;
+          }
         }
-        
-        console.log('本文入力完了');
-        contentInputted = true;
-        break;
+        if (contentInputted) break;
       } catch (e) {
         continue;
       }
     }
 
-    if (!contentInputted) {
-      console.log('本文入力フィールドが見つかりませんでした');
+    if (!titleInputted && !contentInputted) {
+      console.log('タイトルと本文の両方の入力に失敗しました');
       return false;
+    } else if (!titleInputted) {
+      console.log('タイトル入力に失敗しましたが、本文入力は成功しました');
+    } else if (!contentInputted) {
+      console.log('本文入力に失敗しましたが、タイトル入力は成功しました');
+    } else {
+      console.log('タイトルと本文の両方の入力に成功しました');
     }
 
     // 入力完了後、少し待機
-    await page.waitForTimeout(2000);
-    console.log('記事内容入力完了');
+    await page.waitForTimeout(3000);
     return true;
 
   } catch (inputError) {
@@ -307,78 +411,91 @@ async function inputArticleContent(page, article) {
   }
 }
 
-async function executePost(page, isPublished) {
+async function executePostAdvanced(page, isPublished) {
   try {
     console.log(`${isPublished === 'true' ? '公開' : '下書き保存'}処理を実行中...`);
     
-    if (isPublished === 'true') {
-      // 公開ボタンを探してクリック
-      const publishSelectors = [
-        'button:has-text("公開する")',
-        'button:has-text("公開")',
-        'button[data-testid*="publish"]',
-        '.publish-button',
-        'button[type="submit"]'
-      ];
+    // より多くのボタンパターンを試行
+    const actionSelectors = isPublished === 'true' ? [
+      'button:has-text("公開する")',
+      'button:has-text("公開")',
+      'button:has-text("投稿する")',
+      'button:has-text("発行")',
+      'button[data-testid*="publish"]',
+      'button[class*="publish"]',
+      '.publish-button',
+      'input[type="submit"][value*="公開"]'
+    ] : [
+      'button:has-text("下書き保存")',
+      'button:has-text("保存")',
+      'button:has-text("下書き")',
+      'button[data-testid*="save"]',
+      'button[class*="save"]',
+      '.save-button',
+      'input[type="submit"][value*="保存"]'
+    ];
 
-      for (const selector of publishSelectors) {
-        try {
-          await page.waitForSelector(selector, { timeout: 5000 });
-          await page.click(selector);
-          console.log('公開ボタンクリック完了');
-          
-          // 公開確認ダイアログの処理
-          await page.waitForTimeout(2000);
-          
-          const confirmSelectors = [
-            'button:has-text("公開")',
-            'button:has-text("確認")',
-            'button:has-text("はい")',
-            'button:has-text("OK")'
-          ];
-          
-          for (const confirmSelector of confirmSelectors) {
-            try {
-              await page.waitForSelector(confirmSelector, { timeout: 3000 });
-              await page.click(confirmSelector);
-              console.log('公開確認完了');
-              break;
-            } catch (e) {
-              continue;
-            }
+    let actionExecuted = false;
+    
+    for (const selector of actionSelectors) {
+      try {
+        const elements = await page.locator(selector).all();
+        for (const element of elements) {
+          if (await element.isVisible({ timeout: 2000 }) && await element.isEnabled()) {
+            await element.click();
+            console.log(`${isPublished === 'true' ? '公開' : '保存'}ボタンクリック成功: ${selector}`);
+            actionExecuted = true;
+            break;
           }
-          
-          break;
-        } catch (e) {
-          continue;
         }
+        if (actionExecuted) break;
+      } catch (e) {
+        continue;
       }
-    } else {
-      // 下書き保存
-      const saveSelectors = [
-        'button:has-text("下書き保存")',
-        'button:has-text("保存")',
-        'button[data-testid*="save"]',
-        '.save-button'
-      ];
+    }
 
-      for (const selector of saveSelectors) {
+    if (!actionExecuted) {
+      console.log(`${isPublished === 'true' ? '公開' : '保存'}ボタンが見つかりませんでした`);
+      
+      // フォーム送信を試行
+      try {
+        await page.keyboard.press('Control+Enter'); // Ctrl+Enter で送信を試行
+        console.log('Ctrl+Enterで送信を試行しました');
+        actionExecuted = true;
+      } catch (e) {
+        console.log('Ctrl+Enter送信も失敗しました');
+      }
+    }
+
+    if (actionExecuted) {
+      // 処理完了を待機
+      await page.waitForTimeout(5000);
+      
+      // 確認ダイアログがある場合の処理
+      const confirmSelectors = [
+        'button:has-text("確認")',
+        'button:has-text("はい")',
+        'button:has-text("OK")',
+        'button:has-text("公開")'
+      ];
+      
+      for (const selector of confirmSelectors) {
         try {
-          await page.waitForSelector(selector, { timeout: 5000 });
-          await page.click(selector);
-          console.log('下書き保存ボタンクリック完了');
-          break;
+          const element = await page.locator(selector).first();
+          if (await element.isVisible({ timeout: 2000 })) {
+            await element.click();
+            console.log(`確認ボタンクリック: ${selector}`);
+            await page.waitForTimeout(3000);
+            break;
+          }
         } catch (e) {
           continue;
         }
       }
     }
 
-    // 投稿処理完了を待機
-    await page.waitForTimeout(5000);
-    
     console.log(`${isPublished === 'true' ? '公開' : '下書き保存'}処理完了`);
-    return true;
+    return actionExecuted;
 
   } catch (postError) {
     console.error('投稿実行エラー:', postError.message);
@@ -405,7 +522,7 @@ async function saveSuccessResult(article, url, isPublished) {
 async function saveArticleToFile(article, isPublished, error = null) {
   const result = {
     success: false,
-    error: error || '手動投稿が必要',
+    error: error || '自動投稿に失敗。手動投稿が必要',
     article: {
       title: article.title,
       content: article.content,
@@ -414,9 +531,8 @@ async function saveArticleToFile(article, isPublished, error = null) {
     },
     instructions: [
       '手動でnote.comに投稿してください:',
-      '1. https://note.com にアクセス',
-      '2. ログイン',
-      '3. 記事作成ページで以下の内容を貼り付け',
+      '1. https://note.com/note/new にアクセス',
+      '2. 以下の内容を貼り付け',
       `   タイトル: ${article.title}`,
       '   本文: generated_article.md の内容を参照',
       `   公開設定: ${isPublished === 'true' ? '公開' : '下書き'}`
@@ -428,6 +544,7 @@ async function saveArticleToFile(article, isPublished, error = null) {
   fs.writeFileSync('generated_article.md', `# ${article.title}\n\n${article.content}`);
   
   console.log('記事内容を generated_article.md に保存しました');
+  console.log('手動投稿用の指示を post_result.json に保存しました');
 }
 
 function convertMarkdownToPlainText(markdown) {
