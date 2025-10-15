@@ -170,7 +170,6 @@ jobs:
           async function repairJson(raw){const sys='入力から {"title":string,"draftBody":string,"tags":string[]} のJSONのみ返答。';const {text}=await generateText({model:anthropic(modelName),system:sys,prompt:String(raw),temperature:0,maxTokens:8000});return extractJsonFlexible(text||'');}
           function sanitizeTitle(t){
             let s=String(t||'').trim();
-            // フェンスや見出し、引用符を除去
             s=s.replace(/^```[a-zA-Z0-9_-]*\s*$/,'').replace(/^```$/,'');
             s=s.replace(/^#+\s*/,'');
             s=s.replace(/^"+|"+$/g,'').replace(/^'+|'+$/g,'');
@@ -260,7 +259,9 @@ jobs:
           DRAFT_B64: ${{ needs.write.outputs.draft_json_b64 }}
         run: |
           test -n "$DRAFT_B64" || { echo "draft_json_b64 output is empty"; exit 1; }
-          echo "$DRAFT_B64" | base64 -d > draft.json || echo "$DRAFT_B64" | base64 --decode > draft.json
+          mkdir -p .note-artifacts
+          echo "$DRAFT_B64" | base64 -d > .note-artifacts/draft.json || echo "$DRAFT_B64" | base64 --decode > .note-artifacts/draft.json
+          cp .note-artifacts/draft.json draft.json
           echo "TITLE=$(jq -r .title draft.json)" >> $GITHUB_OUTPUT
           echo "TAGS=$(jq -r '.tags | join(", ")' draft.json)" >> $GITHUB_OUTPUT
 
