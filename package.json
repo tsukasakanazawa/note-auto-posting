@@ -1,16 +1,33 @@
 {
-  "name": "github-actions-note",
+  "name": "note-auto-posting",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Automated article generation and posting to note.com",
+  "main": "post.mjs",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "research": "node research.mjs",
+    "write": "node ai-writer.mjs",
+    "post": "node post.mjs",
+    "test-full": "npm run research && npm run write && npm run post",
+    "dev": "node --inspect post.mjs"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "playwright": "^1.55.1"
-  }
+    "@anthropic-ai/sdk": "^0.27.0",
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "note.com",
+    "automation",
+    "ai",
+    "claude",
+    "content-generation"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
 }
