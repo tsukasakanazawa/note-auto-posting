@@ -12,18 +12,28 @@ function nowStr(){
 const STATE_PATH=process.env.STATE_PATH;
 const START_URL=process.env.START_URL||'https://editor.note.com/new';
 const rawTitle=process.env.TITLE||'';
-const rawFinal=JSON.parse(fs.readFileSync('final.json','utf8'));
-const rawBody=String(rawFinal.body||'');
 const TAGS=process.env.TAGS||'';
 const IS_PUBLIC=String(process.env.IS_PUBLIC||'false')==='true';
 
-if(!fs.existsSync(STATE_PATH)){ 
-  console.error('storageState not found:', STATE_PATH); 
-  process.exit(1); 
+// ✅ draft.jsonを読み込み（final.jsonではない）
+let articleData;
+try {
+  if (fs.existsSync('draft.json')) {
+    articleData = JSON.parse(fs.readFileSync('draft.json','utf8'));
+    console.log('✅ draft.jsonから記事データを読み込み完了');
+  } else {
+    console.error('❌ draft.json が見つかりません');
+    console.log('📋 現在のディレクトリ内容:');
+    const files = fs.readdirSync('.');
+    files.forEach(file => console.log(`  - ${file}`));
+    process.exit(1);
+  }
+} catch (error) {
+  console.error('❌ draft.json読み込みエラー:', error.message);
+  process.exit(1);
 }
 
-const ssDir=path.join(os.tmpdir(),'note-screenshots'); 
-fs.mkdirSync(ssDir,{recursive:true}); 
+const rawBody = String(articleData.draftBody || articleData.body || '');
 
 function sanitizeTitle(t){
   let s=String(t||'').trim();
@@ -37,19 +47,18 @@ function sanitizeTitle(t){
   return s;
 }
 
-// Markdownを使わずプレーンテキスト処理
 function processTextContent(text) {
   return String(text||'')
-    .replace(/\*\*(.*?)\*\*/g, '$1')      // **太字** → 太字
-    .replace(/\*(.*?)\*/g, '$1')         // *斜体* → 斜体  
-    .replace(/`(.*?)`/g, '$1')           // `コード` → コード
-    .replace(/#{1,6}\s+/g, '')           // # 見出し → 見出し
-    .replace(/^\s*[-*+]\s+/gm, '• ')     // リスト → 箇条書き
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [リンク](URL) → リンク
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/`(.*?)`/g, '$1')
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/^\s*[-*+]\s+/gm, '• ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .trim();
 }
 
-let TITLE = sanitizeTitle(rawTitle);
+let TITLE = sanitizeTitle(rawTitle || articleData.title || '');
 let processedBody = processTextContent(rawBody);
 
 if(!TITLE || TITLE==='タイトル（自動生成）'){
@@ -62,6 +71,21 @@ if(!TITLE || TITLE==='タイトル（自動生成）'){
     }
   }
 }
+
+console.log(`🔍 記事情報:`);
+console.log(`  - タイトル: "${TITLE}"`);
+console.log(`  - 本文: ${processedBody.length}文字`);
+console.log(`  - タグ: ${TAGS || 'なし'}`);
+console.log(`  - 公開設定: ${IS_PUBLIC ? '公開' : '下書き'}`);
+
+if(!fs.existsSync(STATE_PATH)){ 
+  console.error('❌ storageState not found:', STATE_PATH); 
+  console.log('💡 NOTE_STORAGE_STATE_JSON シークレットが正しく設定されているか確認してください');
+  process.exit(1); 
+}
+
+const ssDir=path.join(os.tmpdir(),'note-screenshots'); 
+fs.mkdirSync(ssDir,{recursive:true}); 
 
 let browser, context, page;
 try{
@@ -109,8 +133,6 @@ try{
 
   // デバッグ用スクリーンショット
   await page.screenshot({ path: `${ssDir}/debug-1-initial-${nowStr()}.png`, fullPage: true });
-  console.log(`🔍 処理予定 - タイトル: "${TITLE}" (${TITLE.length}文字)`);
-  console.log(`🔍 処理予定 - 本文: ${processedBody.length}文字`);
 
   // タイトル入力
   await titleElement.fill(TITLE);
@@ -145,12 +167,12 @@ try{
   // 本文入力（シンプルなテキスト入力）
   await bodyElement.waitFor({ state: 'visible' });
   await bodyElement.click();
-  await page.keyboard.type(processedBody, { delay: 10 }); // 少しゆっくり入力
+  await page.keyboard.type(processedBody, { delay: 10 });
   console.log(`🔍 本文入力完了`);
   await page.screenshot({ path: `${ssDir}/debug-3-after-body-${nowStr()}.png`, fullPage: true });
 
   if(!IS_PUBLIC){
-    // 下書き保存ボタンを探索（より多くのパターン）
+    // 下書き保存ボタンを探索
     const saveSelectors = [
       'button:has-text("下書き保存")',
       'button:has-text("下書きに保存")',
@@ -221,7 +243,7 @@ try{
     process.exit(0);
   }
 
-  // 公開処理は省略...
+  // 公開処理（省略...）
 
 } finally {
   try{ await page?.close(); }catch{}
