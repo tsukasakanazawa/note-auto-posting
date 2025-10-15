@@ -18,7 +18,7 @@ on:
       experience:
         description: '体験談'
         required: true
-        default: '実際に試してある'
+        default: '実際に試してみる'
       is_published:
         description: '公開フラグ'
         required: true
@@ -112,6 +112,9 @@ jobs:
           
       - name: Install dependencies
         run: npm install
+        
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
         
       - name: Download article draft
         uses: actions/download-artifact@v4
