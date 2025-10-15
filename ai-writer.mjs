@@ -54,7 +54,7 @@ async function generateArticle(theme, target, message, cta) {
 - CTA: ${cta}
 
 【要求事項】
-- 文字数: 1500-2000文字
+- 文字数: 100-200文字
 - 構成: タイトル、導入、本文（3-4つのセクション）、まとめ
 - 読みやすい文体で実用的な内容
 - SEOを意識したタイトル
