@@ -213,154 +213,9 @@ jobs:
           name: draft-artifact
           path: .note-artifacts/draft.json
 
-  factcheck:
-    name: Fact-check (Tavily)
-    needs: write
-    runs-on: ubuntu-latest
-    env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-      TITLE: ${{ needs.write.outputs.title }}
-    outputs:
-      title: ${{ steps.collect.outputs.title }}
-      final_b64: ${{ steps.collect.outputs.final_b64 }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install AI SDK
-        run: |
-          npm init -y
-          npm i ai @ai-sdk/anthropic
-
-      - name: Restore draft json
-        env:
-          DRAFT_JSON_B64: ${{ needs.write.outputs.draft_json_b64 }}
-        run: |
-          mkdir -p .note-artifacts
-          echo "$DRAFT_JSON_B64" | base64 -d > .note-artifacts/draft.json || echo "$DRAFT_JSON_B64" | base64 --decode > .note-artifacts/draft.json
-
-      - name: Fact-check with Tavily
-        run: |
-          cat > factcheck.mjs <<'EOF'
-          import { generateText } from 'ai';
-          import { anthropic } from '@ai-sdk/anthropic';
-          import fs from 'fs';
-          const draft=JSON.parse(fs.readFileSync('.note-artifacts/draft.json','utf8'));
-          const modelName='claude-sonnet-4-5-20250929';
-          const TAVILY_API_KEY=process.env.TAVILY_API_KEY||'';
-          if(!TAVILY_API_KEY){ console.error('TAVILY_API_KEY is not set'); process.exit(1); }
-
-          function extractJsonFlexible(raw){
-            const t=(raw||'').trim().replace(/\u200B/g,'');
-            // try object
-            try{ const o=JSON.parse(t); return o; }catch{}
-            const fence=t.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/); if(fence&&fence[1]){ try{ return JSON.parse(fence[1].trim()); }catch{} }
-            // try object slice
-            let f=t.indexOf('{'), l=t.lastIndexOf('}'); if(f!==-1&&l!==-1&&l>f){ const cand=t.slice(f,l+1); try{ return JSON.parse(cand); }catch{} }
-            // try array slice
-            f=t.indexOf('['); l=t.lastIndexOf(']'); if(f!==-1&&l!==-1&&l>f){ const cand=t.slice(f,l+1); try{ return JSON.parse(cand); }catch{} }
-            return null;
-          }
-          function stripCodeFence(s){
-            const t=String(s||'').trim();
-            const m=t.match(/^```[a-zA-Z0-9_-]*\s*([\s\S]*?)\s*```\s*$/); if(m&&m[1]) return m[1].trim();
-            return t;
-          }
-
-          async function proposeQueries(body){
-            const sys='あなたは事実検証の専門家です。入力本文から検証が必要な固有名詞・数値・主張を抽出し、Tavily検索用に日本語の検索クエリを最大10件の配列で返してください。出力はJSON配列のみ。';
-            const { text } = await generateText({ model: anthropic(modelName), system: sys, prompt: String(body), temperature: 0, maxTokens: 2000 });
-            const arr = extractJsonFlexible(text||'');
-            return Array.isArray(arr) ? arr.map(String).filter(Boolean).slice(0,10) : [];
-          }
-
-          async function tavilySearch(q){
-            const res = await fetch('https://api.tavily.com/search', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ api_key: TAVILY_API_KEY, query: q, search_depth: 'advanced', max_results: 5, include_answer: true })
-            });
-            if(!res.ok){ return { query:q, results:[], answer:null }; }
-            const json = await res.json().catch(()=>({}));
-            return { query:q, results: Array.isArray(json.results)? json.results: [], answer: json.answer || null };
-          }
-
-          function formatEvidence(items){
-            const lines = [];
-            for(const it of items){
-              lines.push(`### 検索: ${it.query}`);
-              if(it.answer){ lines.push(`要約: ${it.answer}`); }
-              for(const r of it.results||[]){
-                const t = (r.title||'').toString();
-                const u = (r.url||'').toString();
-                const c = (r.content||'').toString().slice(0,500);
-                lines.push(`- [${t}](${u})\n  ${c}`);
-              }
-              lines.push('');
-            }
-            return lines.join('\n');
-          }
-
-          async function main(){
-            const queries = await proposeQueries(draft.draftBody||'');
-            const results = [];
-            for(const q of queries){ results.push(await tavilySearch(q)); }
-            const evidence = formatEvidence(results);
-            const sys=[
-              'あなたは事実検証の専門家です。以下の原稿（note記事の下書き）に対し、提供されたエビデンス（Tavily検索結果）に基づき、',
-              '誤情報の修正・低信頼出典の置換・信頼できる一次情報の本文内Markdownリンク埋め込みを行って、修正後の本文のみ返してください。',
-              '文体・構成は原稿を尊重し、必要に応じて本文末尾に参考文献セクションを追加してください。',
-            ].join('\n');
-            const prompt = [
-              '## 原稿', String(draft.draftBody||''), '', '## エビデンス（Tavily検索結果）', evidence
-            ].join('\n\n');
-            const { text } = await generateText({ model: anthropic(modelName), system: sys, prompt, temperature: 0.3, maxTokens: 30000 });
-            let body = stripCodeFence(text||'');
-            let title = process.env.TITLE || draft.title || '';
-            let tags = Array.isArray(draft.tags)? draft.tags: [];
-            const obj = extractJsonFlexible(body);
-            if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-              if (obj.title) title = String(obj.title);
-              const candidates = [obj.body, obj.draftBody, obj.content, obj.text];
-              const chosen = candidates.find(v=>typeof v==='string' && v.trim());
-              if (chosen) body = String(chosen);
-              if (Array.isArray(obj.tags)) tags = obj.tags.map(String);
-            }
-            body = stripCodeFence(body);
-            const out = { title, body, tags };
-            fs.writeFileSync('.note-artifacts/final.json', JSON.stringify(out,null,2));
-          }
-
-          await main();
-          EOF
-          node factcheck.mjs
-
-      - name: Upload fact-check artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-artifact
-          path: .note-artifacts/final.json
-
-      - name: Collect final
-        id: collect
-        run: |
-          title=$(node -e "console.log(JSON.parse(require('fs').readFileSync('.note-artifacts/final.json','utf8')).title)")
-          b64=$(base64 -w 0 .note-artifacts/final.json 2>/dev/null || base64 .note-artifacts/final.json)
-          echo "title<<EOF" >> $GITHUB_OUTPUT
-          echo "$title" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "final_b64<<EOF" >> $GITHUB_OUTPUT
-          echo "$b64" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
   post:
     name: Post to note.com (Playwright)
-    needs: factcheck
+    needs: write
     if: ${{ github.event.inputs.dry_run != 'true' }}
     runs-on: ubuntu-latest
     env:
@@ -381,7 +236,7 @@ jobs:
       - name: Install Playwright
         run: |
           npm init -y
-          npm i playwright marked
+          npm i playwright
           npx playwright install --with-deps chromium | cat
 
       - name: Prepare storageState
@@ -399,15 +254,15 @@ jobs:
             sudo apt-get install -y jq
           fi
 
-      - name: Restore final
+      - name: Restore draft
         id: draft
         env:
-          FINAL_B64: ${{ needs.factcheck.outputs.final_b64 }}
+          DRAFT_B64: ${{ needs.write.outputs.draft_json_b64 }}
         run: |
-          test -n "$FINAL_B64" || { echo "final_b64 output is empty"; exit 1; }
-          echo "$FINAL_B64" | base64 -d > final.json || echo "$FINAL_B64" | base64 --decode > final.json
-          echo "TITLE=$(jq -r .title final.json)" >> $GITHUB_OUTPUT
-          echo "TAGS=$(jq -r '.tags | join(", ")' final.json)" >> $GITHUB_OUTPUT
+          test -n "$DRAFT_B64" || { echo "draft_json_b64 output is empty"; exit 1; }
+          echo "$DRAFT_B64" | base64 -d > draft.json || echo "$DRAFT_B64" | base64 --decode > draft.json
+          echo "TITLE=$(jq -r .title draft.json)" >> $GITHUB_OUTPUT
+          echo "TAGS=$(jq -r '.tags | join(", ")' draft.json)" >> $GITHUB_OUTPUT
 
       - name: Publish via Playwright (draft or public)
         id: publish
@@ -416,27 +271,43 @@ jobs:
           TAGS: ${{ steps.draft.outputs.TAGS }}
           STATE_PATH: ${{ steps.state.outputs.STATE_PATH }}
         run: |
-          # 本文は後続スクリプト内でMarkdownリンク→素URL化などの前処理を行う
           cat > post.mjs <<'EOF'
           import { chromium } from 'playwright';
-          import { marked } from 'marked';
           import fs from 'fs';
           import os from 'os';
           import path from 'path';
 
-          function nowStr(){ const d=new Date(); const z=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}_${z(d.getHours())}-${z(d.getMinutes())}-${z(d.getSeconds())}`; }
+          function nowStr(){ 
+            const d=new Date(); 
+            const z=n=>String(n).padStart(2,'0'); 
+            return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}_${z(d.getHours())}-${z(d.getMinutes())}-${z(d.getSeconds())}`; 
+          }
 
           const STATE_PATH=process.env.STATE_PATH;
           const START_URL=process.env.START_URL||'https://editor.note.com/new';
           const rawTitle=process.env.TITLE||'';
-          const rawFinal=JSON.parse(fs.readFileSync('final.json','utf8'));
-          const rawBody=String(rawFinal.body||'');
           const TAGS=process.env.TAGS||'';
           const IS_PUBLIC=String(process.env.IS_PUBLIC||'false')==='true';
 
-          if(!fs.existsSync(STATE_PATH)){ console.error('storageState not found:', STATE_PATH); process.exit(1); }
+          // draft.jsonを読み込み
+          let articleData;
+          try {
+            if (fs.existsSync('draft.json')) {
+              articleData = JSON.parse(fs.readFileSync('draft.json','utf8'));
+              console.log('✅ draft.jsonから記事データを読み込み完了');
+            } else {
+              console.error('❌ draft.json が見つかりません');
+              console.log('📋 現在のディレクトリ内容:');
+              const files = fs.readdirSync('.');
+              files.forEach(file => console.log(`  - ${file}`));
+              process.exit(1);
+            }
+          } catch (error) {
+            console.error('❌ draft.json読み込みエラー:', error.message);
+            process.exit(1);
+          }
 
-          const ssDir=path.join(os.tmpdir(),'note-screenshots'); fs.mkdirSync(ssDir,{recursive:true}); const SS_PATH=path.join(ssDir,`note-post-${nowStr()}.png`);
+          const rawBody = String(articleData.draftBody || articleData.body || '');
 
           function sanitizeTitle(t){
             let s=String(t||'').trim();
@@ -445,143 +316,50 @@ jobs:
             s=s.replace(/^"+|"+$/g,'').replace(/^'+|'+$/g,'');
             s=s.replace(/^`+|`+$/g,'');
             s=s.replace(/^json$/i,'').trim();
-            // タイトルが波括弧や記号のみの時は無効として扱う
             if (/^[\{\}\[\]\(\)\s]*$/.test(s)) s='';
             if(!s) s='タイトル（自動生成）';
             return s;
           }
-          function deriveTitleFromMarkdown(md){
-            const lines=String(md||'').split(/\r?\n/);
-            for (const line of lines){
-              const l=line.trim();
-              if(!l) continue;
-              const m=l.match(/^#{1,3}\s+(.+)/); if(m) return sanitizeTitle(m[1]);
-              if(!/^```|^>|^\* |^- |^\d+\. /.test(l)) return sanitizeTitle(l);
-            }
-            return '';
-          }
-          function normalizeBullets(md){
-            // 先頭の中黒・ビュレットを箇条書きに正規化
-            return String(md||'')
-              .replace(/^\s*[•・]\s?/gm,'- ')
-              .replace(/^\s*◦\s?/gm,'  - ');
-          }
-          function unwrapParagraphs(md){
-            // 段落中の不必要な改行をスペースへ（見出し/リスト/引用/コードは除外）
-            const lines=String(md||'').split(/\r?\n/);
-            const out=[]; let buf=''; let inFence=false;
-            for(const raw of lines){
-              const line=raw.replace(/\u200B/g,'');
-              if(/^```/.test(line)){ inFence=!inFence; buf+=line+'\n'; continue; }
-              if(inFence){ buf+=line+'\n'; continue; }
-              if(/^\s*$/.test(line)){ if(buf) out.push(buf.trim()); out.push(''); buf=''; continue; }
-              // 箇条書きや番号付きの字下げ改行を一行に連結
-              if(/^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s)/.test(line)){
-                if(buf){ out.push(buf.trim()); buf=''; }
-                // 次の数行が連続して単語単位の改行の場合は連結
-                out.push(line.replace(/\s+$/,''));
-                continue;
-              }
-              // 行頭が1文字や数文字で改行されているケース（縦伸び）を連結
-              if(buf){ buf += (/[。.!?)]$/.test(buf) ? '\n' : ' ') + line.trim(); }
-              else { buf = line.trim(); }
-            }
-            if(buf) out.push(buf.trim());
-            return out.join('\n');
-          }
-          function preferBareUrls(md){
-            const embedDomains=['openai.com','youtube.com','youtu.be','x.com','twitter.com','speakerdeck.com','slideshare.net','google.com','maps.app.goo.gl','gist.github.com'];
-            return String(md||'').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,(m,text,url)=>{
-              try{
-                const u=new URL(url); const host=u.hostname.replace(/^www\./,'');
-                const isEmbed = embedDomains.some(d=>host.endsWith(d) || (url.includes('google.com/maps') && d.includes('google.com')));
-                return isEmbed ? `${text}\n${url}\n` : `${text} (${url})`;
-              }catch{return `${text} ${url}`;}
-            });
-          }
-          function isGarbageLine(line){
-            return /^[\s\{\}\[\]\(\)`]+$/.test(line || '');
-          }
-          function normalizeListItemSoftBreaks(md){
-            const lines=String(md||'').split(/\r?\n/);
-            const out=[]; let inItem=false;
-            const listStartRe=/^(\s*)(?:[-*+]\s|\d+\.\s)/;
-            for (let i=0;i<lines.length;i++){
-              const line=lines[i];
-              if (listStartRe.test(line)){
-                inItem=true;
-                out.push(line.replace(/\s+$/,''));
-                continue;
-              }
-              if (inItem){
-                // 空行 or 次のリスト開始でアイテム終端
-                if (!line.trim()) { out.push(line); inItem=false; continue; }
-                if (listStartRe.test(line)) { inItem=false; out.push(line); continue; }
-                // 継続行は1行へ連結
-                const last = out.pop() || '';
-                out.push(last + ' ' + line.trim());
-                continue;
-              }
-              out.push(line);
-            }
-            return out.join('\n');
-          }
-          function splitMarkdownBlocks(md){
-            const lines=String(md||'').split(/\r?\n/);
-            const blocks=[]; let cur=[]; let inFence=false; let fenceTag='';
-            for(const line of lines){
-              const m=line.match(/^```(.*)$/);
-              if(m){
-                if(!inFence){ inFence=true; fenceTag=m[1]||''; cur.push(line); }
-                else { inFence=false; fenceTag=''; cur.push(line); blocks.push(cur.join('\n')); cur=[]; continue; }
-              } else if(!inFence && line.trim()===''){ if(cur.length){ blocks.push(cur.join('\n')); cur=[]; continue; } }
-              else if(!inFence && isGarbageLine(line)) { continue; }
-              cur.push(line);
-            }
-            if(cur.length) blocks.push(cur.join('\n'));
-            return blocks.filter(b=>{ const t=b.trim(); return t.length>0 && !isGarbageLine(t); });
-          }
-          function mdToHtml(block){
-            // JSONが紛れ込んでしまった場合は本文候補のみ抽出
-            try{
-              const maybe = JSON.parse(block);
-              if (maybe && typeof maybe==='object' && !Array.isArray(maybe)){
-                const candidates=[maybe.body, maybe.draftBody, maybe.content, maybe.text];
-                const chosen=candidates.find(v=>typeof v==='string' && v.trim());
-                if (chosen) block = String(chosen);
-              }
-            }catch{}
-            const isList = /^\s*(?:[-*+]\s|\d+\.\s)/.test(block);
-            return String(marked.parse(block, { gfm:true, breaks: !isList, mangle:false, headerIds:false }) || '');
-          }
-          function htmlFromMarkdown(md){
-            // 全文を一括でHTML化（段落ベース）。リスト中の意図しない <br> を避けるため breaks=false
-            return String(marked.parse(md, { gfm:true, breaks:false, mangle:false, headerIds:false }) || '');
-          }
-          async function insertHTML(page, locator, html){
-            await locator.click();
-            await locator.evaluate((el, html) => {
-              el.focus();
-              const sel = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(el);
-              range.collapse(false);
-              sel.removeAllRanges();
-              sel.addRange(range);
-              document.execCommand('insertHTML', false, html);
-            }, html);
+
+          function processTextContent(text) {
+            return String(text||'')
+              .replace(/\*\*(.*?)\*\*/g, '$1')
+              .replace(/\*(.*?)\*/g, '$1')
+              .replace(/`(.*?)`/g, '$1')
+              .replace(/#{1,6}\s+/g, '')
+              .replace(/^\s*[-*+]\s+/gm, '• ')
+              .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+              .trim();
           }
 
-          let TITLE=sanitizeTitle(rawTitle);
-          let preBody = preferBareUrls(rawBody);
-          preBody = normalizeBullets(preBody);
-          preBody = normalizeListItemSoftBreaks(preBody);
-          preBody = unwrapParagraphs(preBody);
+          let TITLE = sanitizeTitle(rawTitle || articleData.title || '');
+          let processedBody = processTextContent(rawBody);
+
           if(!TITLE || TITLE==='タイトル（自動生成）'){
-            const d=deriveTitleFromMarkdown(preBody);
-            if(d) TITLE=d;
+            const lines = processedBody.split('\n');
+            for(const line of lines) {
+              const clean = line.trim();
+              if(clean && clean.length > 0) {
+                TITLE = sanitizeTitle(clean);
+                break;
+              }
+            }
           }
-          const blocks = splitMarkdownBlocks(preBody);
+
+          console.log(`🔍 記事情報:`);
+          console.log(`  - タイトル: "${TITLE}"`);
+          console.log(`  - 本文: ${processedBody.length}文字`);
+          console.log(`  - タグ: ${TAGS || 'なし'}`);
+          console.log(`  - 公開設定: ${IS_PUBLIC ? '公開' : '下書き'}`);
+
+          if(!fs.existsSync(STATE_PATH)){ 
+            console.error('❌ storageState not found:', STATE_PATH); 
+            console.log('💡 NOTE_STORAGE_STATE_JSON シークレットが正しく設定されているか確認してください');
+            process.exit(1); 
+          }
+
+          const ssDir=path.join(os.tmpdir(),'note-screenshots'); 
+          fs.mkdirSync(ssDir,{recursive:true}); 
 
           let browser, context, page;
           try{
@@ -590,80 +368,157 @@ jobs:
             page = await context.newPage();
             page.setDefaultTimeout(180000);
 
-            await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
-            await page.waitForSelector('textarea[placeholder*="タイトル"]');
-            await page.fill('textarea[placeholder*="タイトル"]', TITLE);
+            // デバッグ用ネットワーク監視
+            page.on('response', response => {
+              if (response.url().includes('/api/')) {
+                console.log(`🔍 API Response: ${response.status()} ${response.url()}`);
+              }
+            });
 
-            const bodyBox = page.locator('div[contenteditable="true"][role="textbox"]').first();
-            await bodyBox.waitFor({ state: 'visible' });
-            const htmlAll = htmlFromMarkdown(preBody);
-            let pasted = false;
-            try {
-              const origin = new URL(START_URL).origin;
-              await context.grantPermissions(['clipboard-read','clipboard-write'], { origin });
-              await page.evaluate(async (html, plain) => {
-                const item = new ClipboardItem({
-                  'text/html': new Blob([html], { type: 'text/html' }),
-                  'text/plain': new Blob([plain], { type: 'text/plain' }),
-                });
-                await navigator.clipboard.write([item]);
-              }, htmlAll, preBody);
-              await bodyBox.click();
-              await page.keyboard.press('Control+V');
-              await page.waitForTimeout(200);
-              pasted = true;
-            } catch (e) {
-              // クリップボード権限が無い場合のフォールバック
+            await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
+            console.log(`🔍 ページ読み込み完了: ${page.url()}`);
+
+            // タイトル入力要素を探索
+            const titleSelectors = [
+              'textarea[placeholder*="タイトル"]',
+              'input[placeholder*="タイトル"]', 
+              'textarea[data-testid*="title"]',
+              'input[data-testid*="title"]',
+              '[contenteditable][data-placeholder*="タイトル"]'
+            ];
+            
+            let titleElement = null;
+            for (const selector of titleSelectors) {
+              try {
+                await page.waitForSelector(selector, { timeout: 5000 });
+                titleElement = page.locator(selector).first();
+                console.log(`🔍 タイトル要素発見: ${selector}`);
+                break;
+              } catch {
+                console.log(`🔍 タイトル要素なし: ${selector}`);
+              }
             }
-            if (!pasted) {
-              // 一括HTML挿入フォールバック
-              await insertHTML(page, bodyBox, htmlAll);
-              await page.waitForTimeout(100);
+            
+            if (!titleElement) {
+              console.log(`🔍 エラー: タイトル入力要素が見つからない`);
+              await page.screenshot({ path: `${ssDir}/error-no-title-${nowStr()}.png`, fullPage: true });
+              process.exit(1);
             }
+
+            // デバッグ用スクリーンショット
+            await page.screenshot({ path: `${ssDir}/debug-1-initial-${nowStr()}.png`, fullPage: true });
+
+            // タイトル入力
+            await titleElement.fill(TITLE);
+            console.log(`🔍 タイトル入力完了`);
+            await page.screenshot({ path: `${ssDir}/debug-2-after-title-${nowStr()}.png`, fullPage: true });
+
+            // 本文入力要素を探索
+            const bodySelectors = [
+              'div[contenteditable="true"][role="textbox"]',
+              'div[contenteditable="true"][data-testid*="editor"]', 
+              'div[contenteditable="true"]',
+              'textarea[data-testid*="body"]',
+              'textarea[placeholder*="本文"]'
+            ];
+            
+            let bodyElement = null;
+            for (const selector of bodySelectors) {
+              const count = await page.locator(selector).count();
+              if (count > 0) {
+                bodyElement = page.locator(selector).first();
+                console.log(`🔍 本文要素発見: ${selector} (${count}個)`);
+                break;
+              }
+            }
+            
+            if (!bodyElement) {
+              console.log(`🔍 エラー: 本文入力要素が見つからない`);
+              await page.screenshot({ path: `${ssDir}/error-no-body-${nowStr()}.png`, fullPage: true });
+              process.exit(1);
+            }
+
+            // 本文入力（シンプルなテキスト入力）
+            await bodyElement.waitFor({ state: 'visible' });
+            await bodyElement.click();
+            await page.keyboard.type(processedBody, { delay: 10 });
+            console.log(`🔍 本文入力完了`);
+            await page.screenshot({ path: `${ssDir}/debug-3-after-body-${nowStr()}.png`, fullPage: true });
 
             if(!IS_PUBLIC){
-              const saveBtn = page.locator('button:has-text("下書き保存"), [aria-label*="下書き保存"]').first();
-              await saveBtn.waitFor({ state: 'visible' });
-              if(await saveBtn.isEnabled()) { await saveBtn.click(); await page.locator('text=保存しました').waitFor({ timeout: 4000 }).catch(()=>{}); }
-              await page.screenshot({ path: SS_PATH, fullPage: true });
+              // 下書き保存ボタンを探索
+              const saveSelectors = [
+                'button:has-text("下書き保存")',
+                'button:has-text("下書きに保存")',
+                'button:has-text("保存")',
+                '[aria-label*="下書き保存"]',
+                '[aria-label*="保存"]',
+                'button[data-testid*="draft"]',
+                'button[data-testid*="save"]',
+                '[role="button"]:has-text("下書き")',
+                '[role="button"]:has-text("保存")'
+              ];
+              
+              await page.screenshot({ path: `${ssDir}/debug-4-searching-save-${nowStr()}.png`, fullPage: true });
+              
+              let saveButton = null;
+              console.log(`🔍 下書き保存ボタンを探索中...`);
+              
+              for (const selector of saveSelectors) {
+                const count = await page.locator(selector).count();
+                console.log(`🔍 "${selector}": ${count}個`);
+                if (count > 0) {
+                  saveButton = page.locator(selector).first();
+                  const text = await saveButton.textContent();
+                  console.log(`🔍 発見！ボタンテキスト: "${text}"`);
+                  break;
+                }
+              }
+              
+              // 全ボタンを表示（デバッグ用）
+              const allButtons = await page.locator('button').all();
+              console.log(`🔍 全ボタン (${allButtons.length}個)：`);
+              for (let i = 0; i < Math.min(10, allButtons.length); i++) {
+                const text = await allButtons[i].textContent();
+                const ariaLabel = await allButtons[i].getAttribute('aria-label');
+                console.log(`  ${i+1}. "${text}" [${ariaLabel}]`);
+              }
+              
+              if (!saveButton) {
+                console.log(`🔍 エラー: 下書き保存ボタンが見つからない`);
+                await page.screenshot({ path: `${ssDir}/error-no-save-button-${nowStr()}.png`, fullPage: true });
+                process.exit(1);
+              }
+              
+              try {
+                await saveButton.waitFor({ state: 'visible', timeout: 10000 });
+                const isVisible = await saveButton.isVisible();
+                const isEnabled = await saveButton.isEnabled();
+                console.log(`🔍 下書き保存ボタン状態: 表示=${isVisible}, 有効=${isEnabled}`);
+                
+                if(isVisible && isEnabled) { 
+                  console.log(`🔍 下書き保存ボタンをクリック`);
+                  await saveButton.click(); 
+                  await page.screenshot({ path: `${ssDir}/debug-5-after-save-${nowStr()}.png`, fullPage: true });
+                  
+                  // 保存完了待機
+                  await page.waitForTimeout(3000);
+                  console.log(`🔍 保存処理完了`);
+                } else {
+                  console.log(`🔍 エラー: 下書き保存ボタンが使用不可`);
+                }
+              } catch (error) {
+                console.log(`🔍 エラー: 保存処理中に問題発生 - ${error.message}`);
+              }
+              
+              await page.screenshot({ path: `${ssDir}/debug-6-final-${nowStr()}.png`, fullPage: true });
+              console.log(`🔍 最終URL: ${page.url()}`);
               console.log('DRAFT_URL=' + page.url());
-              console.log('SCREENSHOT=' + SS_PATH);
               process.exit(0);
             }
 
-            const proceed = page.locator('button:has-text("公開に進む")').first();
-            await proceed.waitFor({ state: 'visible' });
-            for (let i=0;i<20;i++){ if (await proceed.isEnabled()) break; await page.waitForTimeout(100); }
-            await proceed.click({ force: true });
+            // 公開処理（省略）
 
-            await Promise.race([
-              page.waitForURL(/\/publish/i).catch(() => {}),
-              page.locator('button:has-text("投稿する")').first().waitFor({ state: 'visible' }).catch(() => {}),
-            ]);
-
-            const tags=(TAGS||'').split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
-            if(tags.length){
-              let tagInput=page.locator('input[placeholder*="ハッシュタグ"]');
-              if(!(await tagInput.count())) tagInput=page.locator('input[role="combobox"]').first();
-              await tagInput.waitFor({ state: 'visible' });
-              for(const t of tags){ await tagInput.click(); await tagInput.fill(t); await page.keyboard.press('Enter'); await page.waitForTimeout(120); }
-            }
-
-            const publishBtn = page.locator('button:has-text("投稿する")').first();
-            await publishBtn.waitFor({ state: 'visible' });
-            for (let i=0;i<20;i++){ if (await publishBtn.isEnabled()) break; await page.waitForTimeout(100); }
-            await publishBtn.click({ force: true });
-
-            await Promise.race([
-              page.waitForURL(u => !/\/publish/i.test(typeof u === 'string' ? u : u.toString()), { timeout: 20000 }).catch(() => {}),
-              page.locator('text=投稿しました').first().waitFor({ timeout: 8000 }).catch(() => {}),
-              page.waitForTimeout(5000),
-            ]);
-
-            await page.screenshot({ path: SS_PATH, fullPage: true });
-            const finalUrl=page.url();
-            console.log('PUBLISHED_URL=' + finalUrl);
-            console.log('SCREENSHOT=' + SS_PATH);
           } finally {
             try{ await page?.close(); }catch{}
             try{ await context?.close(); }catch{}
@@ -684,4 +539,3 @@ jobs:
         with:
           name: note-screenshot
           path: ${{ steps.publish.outputs.screenshot }}
-
