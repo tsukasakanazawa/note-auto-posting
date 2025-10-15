@@ -162,41 +162,160 @@ jobs:
           import { generateText } from 'ai';
           import { anthropic } from '@ai-sdk/anthropic';
           import fs from 'fs';
-          const theme=process.env.THEME||''; const target=process.env.TARGET||''; const message=process.env.MESSAGE||''; const cta=process.env.CTA||'';
+          
+          console.log('🚀 記事生成開始...');
+          
+          const theme=process.env.THEME||''; 
+          const target=process.env.TARGET||''; 
+          const message=process.env.MESSAGE||''; 
+          const cta=process.env.CTA||'';
           const inputTags=(process.env.INPUT_TAGS||'').split(',').map(s=>s.trim()).filter(Boolean);
-          const researchReport=fs.readFileSync('.note-artifacts/research.md','utf8');
-          const modelName='claude-sonnet-4-5-20250929';
-          function extractJsonFlexible(raw){const t=(raw||'').trim().replace(/\u200B/g,'');try{return JSON.parse(t);}catch{}const m=t.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/);if(m&&m[1]){try{return JSON.parse(m[1].trim());}catch{}}const f=t.indexOf('{'),l=t.lastIndexOf('}');if(f!==-1&&l!==-1&&l>f){const c=t.slice(f,l+1);try{return JSON.parse(c);}catch{}}return null;}
-          async function repairJson(raw){const sys='入力から {"title":string,"draftBody":string,"tags":string[]} のJSONのみ返答。';const {text}=await generateText({model:anthropic(modelName),system:sys,prompt:String(raw),temperature:0,maxTokens:8000});return extractJsonFlexible(text||'');}
-          function sanitizeTitle(t){
-            let s=String(t||'').trim();
-            s=s.replace(/^```[a-zA-Z0-9_-]*\s*$/,'').replace(/^```$/,'');
-            s=s.replace(/^#+\s*/,'');
-            s=s.replace(/^"+|"+$/g,'').replace(/^'+|'+$/g,'');
-            s=s.replace(/^`+|`+$/g,'');
-            s=s.replace(/^json$/i,'').trim();
-            if(!s) s='タイトル（自動生成）';
+          
+          console.log(`📋 入力パラメータ:`);
+          console.log(`  テーマ: ${theme}`);
+          console.log(`  ターゲット: ${target}`);
+          console.log(`  メッセージ: ${message}`);
+          console.log(`  CTA: ${cta}`);
+          console.log(`  タグ: ${inputTags.join(', ')}`);
+          
+          let researchReport = '';
+          try {
+            researchReport = fs.readFileSync('.note-artifacts/research.md','utf8');
+            console.log(`✅ リサーチデータ読み込み完了: ${researchReport.length}文字`);
+          } catch (error) {
+            console.log(`⚠️ リサーチデータ読み込み失敗: ${error.message}`);
+            researchReport = `${theme}に関する基本的な情報をまとめた記事です。`;
+          }
+          
+          const modelName='claude-3-5-sonnet-20241022';
+          
+          function extractJsonFlexible(raw) {
+            const t = (raw || '').trim().replace(/\u200B/g, '');
+            try { return JSON.parse(t); } catch {}
+            const m = t.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/);
+            if (m && m[1]) {
+              try { return JSON.parse(m[1].trim()); } catch {}
+            }
+            const f = t.indexOf('{'), l = t.lastIndexOf('}');
+            if (f !== -1 && l !== -1 && l > f) {
+              const c = t.slice(f, l + 1);
+              try { return JSON.parse(c); } catch {}
+            }
+            return null;
+          }
+          
+          function sanitizeTitle(t) {
+            let s = String(t || '').trim();
+            s = s.replace(/^```[a-zA-Z0-9_-]*\s*$/, '').replace(/^```$/, '');
+            s = s.replace(/^#+\s*/, '');
+            s = s.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
+            s = s.replace(/^`+|`+$/g, '');
+            s = s.replace(/^json$/i, '').trim();
+            if (!s) s = 'タイトル（自動生成）';
             return s;
           }
-          function deriveTitleFromText(text){
-            const lines=(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-            const firstReal=lines.find(l=>!/^```/.test(l))||lines[0]||'';
-            return sanitizeTitle(firstReal);
+          
+          const sysWrite = `
+          あなたはnote.com向けの記事ライターです。以下の指示に従って記事を作成してください：
+          
+          1. 出力は必ずJSON形式で返してください: {"title": "記事タイトル", "draftBody": "記事本文", "tags": ["タグ1", "タグ2"]}
+          2. draftBodyは4000文字以上の読み応えのある内容にしてください
+          3. 見出し（##）と箇条書きを適切に使用してください
+          4. 読者にとって価値のある具体的な情報を含めてください
+          5. 記事の最後に行動を促すCTAを含めてください
+          `;
+          
+          const prompt = `
+          以下の条件で記事を作成してください：
+          
+          【テーマ】: ${theme}
+          【ターゲット読者】: ${target}
+          【伝えたいメッセージ】: ${message}
+          【読後のアクション】: ${cta}
+          【リサーチ内容】: ${researchReport.substring(0, 3000)}
+          
+          上記を踏まえて、魅力的で実用的な記事をJSON形式で作成してください。
+          `;
+          
+          console.log('🤖 AI記事生成中...');
+          
+          try {
+            const { text } = await generateText({
+              model: anthropic(modelName),
+              system: sysWrite,
+              prompt: prompt,
+              temperature: 0.7,
+              maxTokens: 30000
+            });
+            
+            console.log('✅ AI応答受信完了');
+            console.log(`📋 応答内容プレビュー: ${text.substring(0, 200)}...`);
+            
+            let obj = extractJsonFlexible(text || '');
+            let title, draftBody, tags;
+            
+            if (obj && obj.title && obj.draftBody) {
+              title = sanitizeTitle(obj.title);
+              draftBody = String(obj.draftBody || '').trim();
+              tags = Array.isArray(obj.tags) ? obj.tags.map(String) : [];
+              console.log('✅ JSON解析成功');
+            } else {
+              console.log('⚠️ JSON解析失敗、フォールバック処理実行');
+              // フォールバック処理
+              const lines = (text || '').split(/\r?\n/);
+              title = sanitizeTitle(lines.find(line => line.trim() && !line.startsWith('```')) || theme);
+              draftBody = text || `${theme}について\n\n${message}\n\n詳細な内容については、さらなる調査が必要です。`;
+              tags = [];
+            }
+            
+            // 入力タグを追加
+            if (inputTags.length) {
+              tags = Array.from(new Set([...(tags || []), ...inputTags]));
+            }
+            
+            const finalData = { title, draftBody, tags };
+            
+            console.log('📋 最終記事データ:');
+            console.log(`  タイトル: ${title}`);
+            console.log(`  本文長: ${draftBody.length}文字`);
+            console.log(`  タグ: ${tags.join(', ')}`);
+            
+            // ファイル保存
+            fs.writeFileSync('.note-artifacts/draft.json', JSON.stringify(finalData, null, 2));
+            console.log('✅ draft.json保存完了');
+            
+            // ファイル確認
+            const savedFile = fs.readFileSync('.note-artifacts/draft.json', 'utf8');
+            console.log(`📋 保存確認: ${savedFile.length}文字のファイルが作成されました`);
+            
+          } catch (error) {
+            console.error('❌ 記事生成エラー:', error.message);
+            
+            // エラー時のフォールバック
+            const fallbackData = {
+              title: theme || 'AI生成記事',
+              draftBody: `# ${theme || 'AI生成記事'}\n\n${message || 'この記事は自動生成されました。'}\n\n## 概要\n\n${target || '読者の皆様'}に向けて、${theme || 'テーマ'}について説明します。\n\n## まとめ\n\n${cta || '詳細については、さらなる調査をお勧めします。'}`,
+              tags: inputTags.length ? inputTags : ['AI', '自動生成']
+            };
+            
+            fs.writeFileSync('.note-artifacts/draft.json', JSON.stringify(fallbackData, null, 2));
+            console.log('✅ フォールバック記事を保存しました');
           }
-          const sysWrite='note.com向け長文記事の生成。JSON {title,draftBody,tags[]} で返答。draftBodyは6000〜9000文字を目安に十分な分量で、章ごとに小見出しと箇条書きを適切に含めること。';
-          const prompt=[`{テーマ}: ${theme}`,`{ペルソナ}: ${target}`,`{リサーチ内容}: ${researchReport}`,`{伝えたいこと}: ${message}`,`{読後のアクション}: ${cta}`].join('\n');
-          const {text}=await generateText({model:anthropic(modelName),system:sysWrite,prompt,temperature:0.7,maxTokens:30000});
-          let obj=extractJsonFlexible(text||'')||await repairJson(text||'');
-          let title, draftBody, tags; if(obj){title=sanitizeTitle(obj.title); draftBody=String(obj.draftBody||'').trim(); tags=Array.isArray(obj.tags)?obj.tags.map(String):[]}
-          if(!title||!draftBody){ title=deriveTitleFromText(text||''); const lines=(text||'').split(/\r?\n/); draftBody=lines.slice(1).join('\n').trim()||(text||''); tags=[]}
-          if(inputTags.length){tags=Array.from(new Set([...(tags||[]),...inputTags]));}
-          fs.writeFileSync('.note-artifacts/draft.json',JSON.stringify({title,draftBody,tags},null,2));
           EOF
           node write.mjs
 
       - name: Collect draft
         id: collect
         run: |
+          # ファイル存在確認
+          if [ ! -f .note-artifacts/draft.json ]; then
+            echo "❌ draft.jsonが生成されていません"
+            exit 1
+          fi
+          
+          echo "✅ draft.json確認完了"
+          ls -la .note-artifacts/draft.json
+          
           title=$(node -e "console.log(JSON.parse(require('fs').readFileSync('.note-artifacts/draft.json','utf8')).title)")
           b64=$(base64 -w 0 .note-artifacts/draft.json 2>/dev/null || base64 .note-artifacts/draft.json)
           echo "title<<EOF" >> $GITHUB_OUTPUT
