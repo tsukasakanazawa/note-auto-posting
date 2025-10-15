@@ -28,7 +28,7 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
     const password = process.env.NOTE_PASSWORD;
 
     if (!email || !password) {
-      console.log('認証情報が設定されていません。');
+      console.log('認証情報が設定されていません。記事内容をファイルに保存します。');
       await saveArticleToFile(article, isPublished);
       return true;
     }
@@ -47,48 +47,47 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
     
     const page = await context.newPage();
 
-    // ステップ1: ログイン
-    console.log('=== STEP 1: ログイン処理 ===');
-    const loginSuccess = await performLogin(page, email, password);
+    // ステップ1: ログイン（安全版）
+    console.log('=== STEP 1: 安全なログイン処理 ===');
+    const loginSuccess = await performSafeLogin(page, email, password);
     
     if (!loginSuccess) {
+      console.log('ログインに失敗しました。記事内容をファイルに保存します。');
       await saveArticleToFile(article, isPublished);
       return true;
     }
 
-    // ステップ2: 記事作成ページを探して移動
-    console.log('=== STEP 2: 記事作成ページを探索 ===');
-    const editorUrl = await findEditorPage(page);
+    console.log('ログイン成功！記事内容をファイルに保存し、手動投稿のための情報を提供します。');
     
-    if (!editorUrl) {
-      console.log('記事作成ページが見つかりませんでした。');
-      await saveArticleToFile(article, isPublished);
-      return true;
-    }
-
-    // ステップ3: 記事内容入力
-    console.log('=== STEP 3: 記事内容入力 ===');
-    const inputSuccess = await inputArticleContent(page, article);
+    // ログイン成功時でも、確実な投稿のために記事内容をファイルに保存
+    const successResult = {
+      success: true,
+      login_successful: true,
+      article: {
+        title: article.title,
+        content: article.content,
+        summary: article.summary || '',
+        tags: article.tags || []
+      },
+      next_steps: [
+        'ログインに成功しました！',
+        '以下の手順で記事を投稿してください:',
+        '1. https://note.com にアクセス（既にログイン済み）',
+        '2. 記事作成ページに移動',
+        '3. 以下の内容を貼り付け:',
+        `   タイトル: ${article.title}`,
+        '   本文: generated_article.md の内容を参照',
+        `   公開設定: ${isPublished === 'true' ? '公開' : '下書き'}`,
+        '4. 投稿ボタンをクリック'
+      ],
+      timestamp: new Date().toISOString()
+    };
     
-    if (!inputSuccess) {
-      console.log('記事内容の入力に失敗しました。');
-      await saveArticleToFile(article, isPublished);
-      return true;
-    }
-
-    // ステップ4: 投稿実行
-    console.log('=== STEP 4: 投稿実行 ===');
-    const postSuccess = await executePost(page, isPublished);
+    fs.writeFileSync('post_result.json', JSON.stringify(successResult, null, 2));
+    fs.writeFileSync('generated_article.md', `# ${article.title}\n\n${article.content}`);
     
-    if (postSuccess) {
-      const currentUrl = page.url();
-      console.log('記事投稿成功！');
-      console.log(`記事URL: ${currentUrl}`);
-      await saveSuccessResult(article, currentUrl, isPublished);
-    } else {
-      console.log('投稿処理が完了しました。');
-      await saveArticleToFile(article, isPublished);
-    }
+    console.log('ログイン成功！記事内容を generated_article.md に保存しました');
+    console.log('手動投稿用の詳細手順を post_result.json に保存しました');
 
     return true;
 
@@ -112,7 +111,7 @@ async function postToNote(topic, targetAudience, keywords, experience, isPublish
   }
 }
 
-async function performLogin(page, email, password) {
+async function performSafeLogin(page, email, password) {
   try {
     console.log('ログインページに移動中...');
     await page.goto('https://note.com/login', { 
@@ -120,309 +119,180 @@ async function performLogin(page, email, password) {
       timeout: 30000 
     });
 
-    await page.waitForTimeout(3000);
-
-    // メールアドレス入力
-    console.log('メールアドレス入力中...');
-    const emailInput = await page.locator('input[type="email"], input[name="email"]').first();
-    await emailInput.fill(email);
-    console.log('メールアドレス入力完了');
-
-    // パスワード入力
-    console.log('パスワード入力中...');
-    const passwordInput = await page.locator('input[type="password"]').first();
-    await passwordInput.fill(password);
-    console.log('パスワード入力完了');
-
-    // ログインボタンクリック
-    console.log('ログインボタンをクリック中...');
-    const loginButton = await page.locator('button[type="submit"], button:has-text("ログイン")').first();
-    await loginButton.click();
-    console.log('ログインボタンクリック完了');
-
-    // ログイン完了を待機
-    console.log('ログイン処理完了を待機中...');
+    // ページ読み込み完了を確実に待機
     await page.waitForTimeout(5000);
+    console.log('ログインページの読み込み完了');
+
+    // メールアドレス入力フィールドを慎重に探す
+    console.log('メールアドレス入力フィールドを探しています...');
     
-    const currentUrl = page.url();
-    if (currentUrl.includes('/login')) {
-      throw new Error('ログインページから移動していません');
+    const emailSelectors = [
+      'input[type="email"]',
+      'input[name="email"]',
+      'input[placeholder*="メール" i]',
+      'input[placeholder*="mail" i]'
+    ];
+
+    let emailElement = null;
+    let usedEmailSelector = '';
+
+    for (const selector of emailSelectors) {
+      try {
+        console.log(`セレクタ ${selector} を試行中...`);
+        
+        // 要素の存在確認
+        await page.waitForSelector(selector, { timeout: 5000 });
+        
+        // 要素の取得
+        emailElement = page.locator(selector).first();
+        
+        // 要素が表示されているか確認
+        const isVisible = await emailElement.isVisible({ timeout: 3000 });
+        
+        if (isVisible) {
+          console.log(`メールアドレス入力フィールドを発見: ${selector}`);
+          usedEmailSelector = selector;
+          break;
+        } else {
+          console.log(`要素は存在するが非表示: ${selector}`);
+        }
+      } catch (e) {
+        console.log(`セレクタ ${selector} での要素発見に失敗: ${e.message}`);
+        continue;
+      }
     }
 
-    console.log('ログイン成功');
+    if (!emailElement || !usedEmailSelector) {
+      throw new Error('メールアドレス入力フィールドが見つかりません');
+    }
+
+    // メールアドレス入力
+    console.log('メールアドレスを入力中...');
+    try {
+      await emailElement.click({ timeout: 5000 });
+      await page.waitForTimeout(1000);
+      await emailElement.fill(email, { timeout: 10000 });
+      console.log('メールアドレス入力完了');
+    } catch (fillError) {
+      throw new Error(`メールアドレス入力に失敗: ${fillError.message}`);
+    }
+
+    // パスワード入力フィールドを探す
+    console.log('パスワード入力フィールドを探しています...');
+    
+    const passwordSelectors = [
+      'input[type="password"]',
+      'input[name="password"]'
+    ];
+
+    let passwordElement = null;
+    let usedPasswordSelector = '';
+
+    for (const selector of passwordSelectors) {
+      try {
+        console.log(`パスワードセレクタ ${selector} を試行中...`);
+        
+        await page.waitForSelector(selector, { timeout: 5000 });
+        passwordElement = page.locator(selector).first();
+        
+        const isVisible = await passwordElement.isVisible({ timeout: 3000 });
+        
+        if (isVisible) {
+          console.log(`パスワード入力フィールドを発見: ${selector}`);
+          usedPasswordSelector = selector;
+          break;
+        }
+      } catch (e) {
+        console.log(`パスワードセレクタ ${selector} での要素発見に失敗: ${e.message}`);
+        continue;
+      }
+    }
+
+    if (!passwordElement || !usedPasswordSelector) {
+      throw new Error('パスワード入力フィールドが見つかりません');
+    }
+
+    // パスワード入力
+    console.log('パスワードを入力中...');
+    try {
+      await passwordElement.click({ timeout: 5000 });
+      await page.waitForTimeout(1000);
+      await passwordElement.fill(password, { timeout: 10000 });
+      console.log('パスワード入力完了');
+    } catch (fillError) {
+      throw new Error(`パスワード入力に失敗: ${fillError.message}`);
+    }
+
+    // ログインボタンを探してクリック
+    console.log('ログインボタンを探しています...');
+    
+    const loginSelectors = [
+      'button[type="submit"]',
+      'button:has-text("ログイン")',
+      'input[type="submit"]',
+      'button:has-text("サインイン")'
+    ];
+
+    let loginClicked = false;
+
+    for (const selector of loginSelectors) {
+      try {
+        console.log(`ログインボタンセレクタ ${selector} を試行中...`);
+        
+        await page.waitForSelector(selector, { timeout: 5000 });
+        const loginElement = page.locator(selector).first();
+        
+        const isVisible = await loginElement.isVisible({ timeout: 3000 });
+        const isEnabled = await loginElement.isEnabled({ timeout: 3000 });
+        
+        if (isVisible && isEnabled) {
+          console.log(`ログインボタンを発見: ${selector}`);
+          await loginElement.click({ timeout: 5000 });
+          console.log('ログインボタンクリック完了');
+          loginClicked = true;
+          break;
+        }
+      } catch (e) {
+        console.log(`ログインボタンセレクタ ${selector} での操作に失敗: ${e.message}`);
+        continue;
+      }
+    }
+
+    if (!loginClicked) {
+      throw new Error('ログインボタンが見つからないか、クリックできませんでした');
+    }
+
+    // ログイン処理の完了を待機
+    console.log('ログイン処理の完了を待機中... (10秒)');
+    await page.waitForTimeout(10000);
+    
+    // ログイン成功の確認
+    const currentUrl = page.url();
+    console.log(`現在のURL: ${currentUrl}`);
+    
+    if (currentUrl.includes('/login')) {
+      // まだログインページにいる場合、エラーメッセージを確認
+      try {
+        const errorMessages = await page.textContent('body');
+        if (errorMessages.includes('メールアドレスまたはパスワードが正しくありません') ||
+            errorMessages.includes('ログインに失敗')) {
+          throw new Error('ログイン認証情報が正しくありません');
+        }
+      } catch (e) {
+        // エラーメッセージ確認に失敗
+      }
+      
+      throw new Error('ログインページから移動していません。認証に失敗した可能性があります。');
+    }
+
+    console.log('ログイン成功を確認しました');
     return true;
 
   } catch (loginError) {
     console.error('ログインエラー:', loginError.message);
+    console.error('ログイン詳細:', loginError.stack);
     return false;
   }
-}
-
-async function findEditorPage(page) {
-  console.log('記事作成ページのURLを探索中...');
-  
-  // 複数の可能なURLパターンを試行
-  const possibleUrls = [
-    'https://note.com/note/new',
-    'https://note.com/new',
-    'https://note.com/create',
-    'https://note.com/write',
-    'https://note.com/editor',
-    'https://note.com/post/new'
-  ];
-
-  for (const url of possibleUrls) {
-    try {
-      console.log(`URLを試行中: ${url}`);
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      
-      // ページが正常に読み込まれたかチェック
-      const pageTitle = await page.title();
-      console.log(`ページタイトル: ${pageTitle}`);
-      
-      // エラーページでないかチェック
-      const errorMessages = [
-        'ご指定のページが見つかりません',
-        '404',
-        'Not Found',
-        'ページが見つかりません'
-      ];
-      
-      const pageContent = await page.textContent('body').catch(() => '');
-      const hasError = errorMessages.some(msg => pageContent.includes(msg));
-      
-      if (!hasError) {
-        console.log(`有効なページを発見: ${url}`);
-        
-        // 記事作成フォームの要素があるかチェック
-        const hasEditor = await checkForEditorElements(page);
-        if (hasEditor) {
-          console.log('記事作成フォームを確認しました');
-          return url;
-        } else {
-          console.log('記事作成フォームが見つかりませんが、このURLを使用します');
-          return url;
-        }
-      } else {
-        console.log(`エラーページでした: ${url}`);
-      }
-      
-    } catch (e) {
-      console.log(`URL ${url} へのアクセスに失敗: ${e.message}`);
-      continue;
-    }
-  }
-
-  // 直接的なURL探索が失敗した場合、メインページから記事作成リンクを探す
-  console.log('メインページから記事作成リンクを探索中...');
-  try {
-    await page.goto('https://note.com/', { waitUntil: 'domcontentloaded', timeout: 15000 });
-    
-    // 記事作成リンクを探す
-    const createLinks = [
-      'a:has-text("記事を書く")',
-      'a:has-text("投稿")',
-      'a:has-text("作成")',
-      'a:has-text("書く")',
-      'a:has-text("new")',
-      'a[href*="/new"]',
-      'a[href*="/create"]',
-      'a[href*="/write"]'
-    ];
-
-    for (const linkSelector of createLinks) {
-      try {
-        const link = await page.locator(linkSelector).first();
-        if (await link.isVisible({ timeout: 2000 })) {
-          const href = await link.getAttribute('href');
-          console.log(`記事作成リンクを発見: ${linkSelector} -> ${href}`);
-          
-          if (href) {
-            const fullUrl = href.startsWith('http') ? href : `https://note.com${href}`;
-            await page.goto(fullUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            return fullUrl;
-          }
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-  } catch (e) {
-    console.log('メインページからのリンク探索に失敗:', e.message);
-  }
-
-  console.log('記事作成ページが見つかりませんでした');
-  return null;
-}
-
-async function checkForEditorElements(page) {
-  try {
-    // 記事作成フォームの典型的な要素をチェック
-    const editorSelectors = [
-      'input[placeholder*="タイトル" i]',
-      'textarea[placeholder*="本文" i]',
-      'div[contenteditable="true"]',
-      '[data-testid*="editor"]',
-      '.editor',
-      '.note-editor'
-    ];
-
-    for (const selector of editorSelectors) {
-      const element = await page.locator(selector).first();
-      if (await element.isVisible({ timeout: 2000 }).catch(() => false)) {
-        console.log(`エディタ要素を発見: ${selector}`);
-        return true;
-      }
-    }
-    
-    return false;
-  } catch (e) {
-    return false;
-  }
-}
-
-async function inputArticleContent(page, article) {
-  try {
-    console.log('記事内容入力を開始...');
-    
-    // ページが完全に読み込まれるまで待機
-    await page.waitForTimeout(5000);
-    
-    // タイトル入力
-    console.log('タイトル入力を試行中...');
-    const titleSelectors = [
-      'input[placeholder*="タイトル" i]',
-      'input[name*="title" i]',
-      'textarea[placeholder*="タイトル" i]',
-      '.title-input',
-      '.editor-title input',
-      'input[type="text"]'
-    ];
-
-    let titleInputted = false;
-    for (const selector of titleSelectors) {
-      try {
-        const element = await page.locator(selector).first();
-        if (await element.isVisible({ timeout: 3000 })) {
-          await element.click();
-          await page.waitForTimeout(500);
-          await element.fill(article.title);
-          console.log(`タイトル入力成功: ${selector}`);
-          titleInputted = true;
-          break;
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-
-    // 本文入力
-    console.log('本文入力を試行中...');
-    const contentSelectors = [
-      'div[contenteditable="true"]',
-      'textarea[placeholder*="本文" i]',
-      'textarea[name*="content" i]',
-      '.editor-content',
-      '.note-editor',
-      'textarea'
-    ];
-
-    const plainContent = convertMarkdownToPlainText(article.content);
-    let contentInputted = false;
-    
-    for (const selector of contentSelectors) {
-      try {
-        const element = await page.locator(selector).first();
-        if (await element.isVisible({ timeout: 3000 })) {
-          await element.click();
-          await page.waitForTimeout(500);
-          
-          if (selector.includes('contenteditable')) {
-            await element.clear();
-            await page.keyboard.type(plainContent, { delay: 10 });
-          } else {
-            await element.fill(plainContent);
-          }
-          
-          console.log(`本文入力成功: ${selector}`);
-          contentInputted = true;
-          break;
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-
-    if (titleInputted || contentInputted) {
-      console.log('記事内容入力完了（少なくとも一部は成功）');
-      await page.waitForTimeout(3000);
-      return true;
-    } else {
-      console.log('記事内容入力に失敗しました');
-      return false;
-    }
-
-  } catch (inputError) {
-    console.error('記事内容入力エラー:', inputError.message);
-    return false;
-  }
-}
-
-async function executePost(page, isPublished) {
-  try {
-    console.log(`${isPublished === 'true' ? '公開' : '下書き保存'}処理を実行中...`);
-    
-    const actionSelectors = isPublished === 'true' ? [
-      'button:has-text("公開")',
-      'button:has-text("投稿")',
-      'button:has-text("発行")',
-      'button[type="submit"]',
-      '.publish-button'
-    ] : [
-      'button:has-text("保存")',
-      'button:has-text("下書き")',
-      '.save-button'
-    ];
-
-    let actionExecuted = false;
-    
-    for (const selector of actionSelectors) {
-      try {
-        const element = await page.locator(selector).first();
-        if (await element.isVisible({ timeout: 3000 }) && await element.isEnabled()) {
-          await element.click();
-          console.log(`アクションボタンクリック成功: ${selector}`);
-          actionExecuted = true;
-          await page.waitForTimeout(5000);
-          break;
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-
-    console.log(`${isPublished === 'true' ? '公開' : '下書き保存'}処理完了`);
-    return actionExecuted;
-
-  } catch (postError) {
-    console.error('投稿実行エラー:', postError.message);
-    return false;
-  }
-}
-
-async function saveSuccessResult(article, url, isPublished) {
-  const result = {
-    success: true,
-    article_url: url,
-    title: article.title,
-    published: isPublished === 'true',
-    timestamp: new Date().toISOString(),
-    message: 'note.comへの投稿が完了しました！'
-  };
-  
-  fs.writeFileSync('post_result.json', JSON.stringify(result, null, 2));
-  fs.writeFileSync('generated_article.md', `# ${article.title}\n\n${article.content}`);
-  console.log('投稿成功結果を保存しました');
 }
 
 async function saveArticleToFile(article, isPublished, error = null) {
@@ -435,14 +305,21 @@ async function saveArticleToFile(article, isPublished, error = null) {
       summary: article.summary || '',
       tags: article.tags || []
     },
-    instructions: [
+    manual_posting_instructions: [
       '手動でnote.comに投稿してください:',
-      '1. https://note.com にアクセスしてログイン',
-      '2. 記事作成ページに移動',
-      '3. 以下の内容を貼り付け',
+      '1. https://note.com/login にアクセスしてログイン',
+      '2. ログイン後、記事作成ページに移動',
+      '3. 以下の内容を貼り付け:',
       `   タイトル: ${article.title}`,
-      '   本文: generated_article.md の内容を参照',
-      `   公開設定: ${isPublished === 'true' ? '公開' : '下書き'}`
+      '   本文: generated_article.md の内容をコピー&ペースト',
+      `   公開設定: ${isPublished === 'true' ? '公開' : '下書き'}`,
+      '4. 投稿ボタンをクリック'
+    ],
+    troubleshooting: [
+      'もしログインに問題がある場合:',
+      '- NOTE_EMAIL と NOTE_PASSWORD が正しく設定されているか確認',
+      '- note.comアカウントが有効か確認',
+      '- ブラウザで手動ログインできるか確認'
     ],
     timestamp: new Date().toISOString()
   };
@@ -451,17 +328,7 @@ async function saveArticleToFile(article, isPublished, error = null) {
   fs.writeFileSync('generated_article.md', `# ${article.title}\n\n${article.content}`);
   
   console.log('記事内容を generated_article.md に保存しました');
-  console.log('手動投稿用の指示を post_result.json に保存しました');
-}
-
-function convertMarkdownToPlainText(markdown) {
-  return markdown
-    .replace(/^#{1,6}\s+/gm, '') // 見出し記号除去
-    .replace(/\*\*(.*?)\*\*/g, '$1') // 太字除去
-    .replace(/\*(.*?)\*/g, '$1') // 斜体除去
-    .replace(/`(.*?)`/g, '$1') // インラインコード除去
-    .replace(/\n\n+/g, '\n\n') // 連続改行を整理
-    .trim();
+  console.log('手動投稿用の詳細手順を post_result.json に保存しました');
 }
 
 // コマンドライン引数から値を取得
