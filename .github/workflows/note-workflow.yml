@@ -3,7 +3,7 @@ name: AI Note Auto Posting
 on:
   workflow_dispatch:
     inputs:
-      theme:
+      topic:
         description: '記事のテーマ'
         required: true
         default: 'AI活用術'
@@ -25,28 +25,109 @@ on:
         default: 'false'
 
 jobs:
-  ai-generate-and-post:
+  research:
     runs-on: ubuntu-latest
-    
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
+      - name: Checkout code
+        uses: actions/checkout@v4
         
-    - name: Install dependencies
-      run: |
-        npm install puppeteer @anthropic-ai/sdk
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: npm install
         
-    - name: Generate and Post Article
-      env:
-        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        NOTE_STORAGE_STATE_JSON: ${{ secrets.NOTE_STORAGE_STATE_JSON }}
-        NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
-        NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
-      run: |
-        echo "AI記事生成開始"
-        node post.mjs ai "${{ github.event.inputs.theme }}" "${{ github.event.inputs.target }}" "${{ github.event.inputs.message }}" "${{ github.event.inputs.cta }}" "${{ github.event.inputs.is_public }}"
-        echo "処理完了"
+      - name: Research Phase
+        run: |
+          echo "=== リサーチフェーズ開始 ==="
+          node research.mjs "${{ github.event.inputs.topic }}" "${{ github.event.inputs.target_audience }}" "${{ github.event.inputs.keywords }}"
+          echo "=== リサーチフェーズ完了 ==="
+          ls -la *.md || echo "research.md が見つかりません"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          
+      - name: Upload research results
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-results
+          path: research.md
+          retention-days: 1
+
+  write:
+    runs-on: ubuntu-latest
+    needs: research
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Download research results
+        uses: actions/download-artifact@v4
+        with:
+          name: research-results
+          
+      - name: Write Phase
+        run: |
+          echo "=== 記事作成フェーズ開始 ==="
+          echo "研究結果の確認:"
+          ls -la research.md || echo "research.md が見つかりません"
+          cat research.md || echo "research.md の内容を読み込めません"
+          
+          echo "記事生成実行:"
+          node ai-writer.mjs "${{ github.event.inputs.topic }}" "${{ github.event.inputs.target_audience }}" "${{ github.event.inputs.keywords }}" "${{ github.event.inputs.experience }}"
+          
+          echo "生成結果の確認:"
+          ls -la draft.json || echo "draft.json が見つかりません"
+          echo "=== 記事作成フェーズ完了 ==="
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          
+      - name: Upload draft
+        uses: actions/upload-artifact@v4
+        with:
+          name: article-draft
+          path: draft.json
+          retention-days: 1
+
+  post:
+    runs-on: ubuntu-latest
+    needs: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Download article draft
+        uses: actions/download-artifact@v4
+        with:
+          name: article-draft
+          
+      - name: Post Phase
+        run: |
+          echo "=== 投稿フェーズ開始 ==="
+          echo "記事ドラフトの確認:"
+          ls -la draft.json || echo "draft.json が見つかりません"
+          
+          echo "note.com投稿実行:"
+          node post.mjs "${{ github.event.inputs.topic }}" "${{ github.event.inputs.target_audience }}" "${{ github.event.inputs.keywords }}" "${{ github.event.inputs.experience }}" "${{ github.event.inputs.is_published }}"
+          echo "=== 投稿フェーズ完了 ==="
+        env:
+          NOTE_STORAGE_STATE_JSON: ${{ secrets.NOTE_STORAGE_STATE_JSON }}
+          NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
+          NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
