@@ -1,26 +1,26 @@
-name: AI Note Auto Posting
+name: ai-generate-and-post
 
 on:
   workflow_dispatch:
     inputs:
       topic:
-        description: '記事のテーマ'
+        description: '記事のトピック'
         required: true
         default: 'AI活用術'
-      target:
-        description: '想定読者'
+      target_audience:
+        description: 'ターゲット読者'
         required: true
         default: 'ビジネスパーソン'
-      message:
-        description: '伝えたい核メッセージ'
+      keywords:
+        description: 'キーワード'
         required: true
         default: 'AIで生産性向上'
-      cta:
-        description: '読後のアクション'
-        required: false
-        default: '実際に試してみる'
-      is_public:
-        description: '公開する（true/false）'
+      experience:
+        description: '体験談'
+        required: true
+        default: '実際に試してある'
+      is_published:
+        description: '公開フラグ'
         required: true
         default: 'false'
 
