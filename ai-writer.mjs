@@ -7,108 +7,102 @@ const anthropic = new Anthropic({
 
 async function generateArticle() {
   try {
-    // 環境変数から取得
-    const topic = process.env.TOPIC || '';
+    const topic = process.env.TOPIC || 'ラグジュアリーブランドの最新トレンド';
     const targetAudience = process.env.TARGET_AUDIENCE || 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル';
     const thinkingMemo = process.env.THINKING_MEMO || '';
     const direction = process.env.DIRECTION || '';
     const focusArea = process.env.FOCUS_AREA || '';
 
-    console.log('=== 環境変数チェック ===');
-    console.log('ANTHROPIC_API_KEY:', process.env.ANTHROPIC_API_KEY ? '設定済み' : '未設定');
-    console.log('TOPIC:', topic || '（空）');
-    console.log('TARGET_AUDIENCE:', targetAudience);
-    console.log('THINKING_MEMO:', thinkingMemo ? `${thinkingMemo.substring(0, 50)}...` : '（空）');
-    console.log('DIRECTION:', direction || '（空）');
-    console.log('FOCUS_AREA:', focusArea || '（空）');
-
     // リサーチ結果を読み込み
     let researchContent = '';
     try {
       researchContent = await fs.readFile('research.md', 'utf-8');
-      console.log('✅ リサーチ結果を読み込みました（', researchContent.length, '文字）');
+      console.log('リサーチ結果を読み込みました');
     } catch (error) {
-      console.warn('⚠️ research.mdが見つかりません。リサーチなしで記事を生成します。');
-      researchContent = '（リサーチデータなし。一般的な知識に基づいて記事を生成してください。）';
+      console.warn('research.mdが見つかりません。リサーチなしで記事を生成します。');
+      researchContent = 'リサーチデータなし。一般的な知識に基づいて記事を作成してください。';
     }
 
     console.log('記事生成を開始します...');
 
-    // 記事生成プロンプト（簡潔版）
     const articlePrompt = `
-あなたは、MBB上位パートナー、電通、P&G、BOFで経営幹部を歴任し、現在は日本のラグジュアリーブランド日本法人トップを務めるプロフェッショナルです。戦略コンサルの定量分析力とクリエイティブエージェンシーの定性洞察力を兼ね備え、ファッション史、現代アート、建築理論、音楽に精通しています。
+あなたはラグジュアリーブランド業界の日本法人トップです。MBB、電通、P&G、BOFで経営幹部を歴任した経験を持ち、業界の最前線で活躍するプロフェッショナルです。
 
-## 執筆の起点：思考メモ
-
-${thinkingMemo || '（特になし。業界で今最もホットな話題を選んでください）'}
+${thinkingMemo ? `## あなたの思考メモ\n${thinkingMemo}\n\n` : ''}
 
 ## 執筆条件
-
-- **トピック**: ${topic || '（上記の思考メモとリサーチ結果から最適なトピックを決定）'}
-- **ターゲット読者**: ${targetAudience}
-- **記事の方向性**: ${direction || '（思考メモから判断）'}
-- **深掘り領域**: ${focusArea || '（思考メモから判断）'}
+- トピック: ${topic}
+- ターゲット読者: ${targetAudience}
+${direction ? `- 記事の方向性: ${direction}` : ''}
+${focusArea ? `- 深掘り領域: ${focusArea}` : ''}
 
 ## リサーチ結果
-
 ${researchContent}
 
 ## 記事の目的
+ビザスクレベルの、クローズドなラグジュアリーブランド業界情報をNOTE読者に提供する。
+具体的なデータや事例は必ずファクトチェックしてください。
 
-ビザスクレベルの、クローズドなラグジュアリーブランド業界情報をNOTE読者に提供。
-
-**必須要件**:
-- ✅ 具体的な数値・企業名・事例（ファクトチェック必須）
-- ✅ 業界インサイダー視点
-- ✅ 実務的価値
-
-## 基本構成（2,500-3,000文字）
-
-1. **タイトル**: 具体的・検索されやすい・プロフェッショナル向け・クリエイティブ
-2. **導入**: 200-300文字
-3. **目次**: 4-6セクション
-4. **本文**: 各セクション400-600文字、データ・事例・分析・定性視点を含む
-5. **参考**: 最低5つの信頼できる情報源（URL）
+## 基本構成
+1. タイトル: 具体的で検索されやすい、プロフェッショナル向けでクリエイティブな表現
+2. 導入: 200-300文字
+3. 目次: 4-6セクション
+4. 本文: 2,500-3,000文字（各セクションでデータ・事例・分析を提供）
+5. 参考: 最低5つの信頼できる情報源（URL形式）
+6. ハッシュタグ: 8-10個
 
 ## 執筆スタイル
-
-- プロフェッショナルかつ読みやすい（敬体）
-- データと物語性の融合、定量と定性のバランス
-- 具体的な企業名・ブランド名を積極使用
-- インサイダー視点（「業界内では〇〇が共通認識」「実際の現場では△△」）
+- プロフェッショナルかつ読みやすい
+- データと定性視点のバランス
+- 具体的な企業名・ブランド名を積極的に使用
+- 業界インサイダーの視点
 
 ## 注意事項
-
-- ❌ コンサルティングファーム出身の表現は使わない
-- ✅ 業界従事者として・現場での経験から
+- コンサルティングファーム出身であることは記載しない
+- 業界従事者としての実務的な視点を重視
 
 ## 出力形式
 
-以下のJSON形式のみを出力してください（JSON以外のテキストは不要）:
+以下のJSON形式で出力してください:
 
 \`\`\`json
 {
   "title": "記事タイトル",
   "introduction": "導入文（200-300文字）",
-  "tableOfContents": ["セクション1", "セクション2", "セクション3", "セクション4", "まとめと今後の展望"],
-  "content": "# セクション1\\n\\n本文...\\n\\n# セクション2\\n\\n本文...（Markdown形式、2,500-3,000文字）",
+  "tableOfContents": [
+    "セクション1のタイトル",
+    "セクション2のタイトル",
+    "セクション3のタイトル",
+    "セクション4のタイトル",
+    "まとめと今後の展望"
+  ],
+  "content": "# セクション1のタイトル\\n\\n本文...\\n\\n# セクション2のタイトル\\n\\n本文...（Markdown形式、2,500-3,000文字）",
   "summary": "記事全体の要約（100-150文字）",
   "references": [
-    "[参考文献1](URL1)",
-    "[参考文献2](URL2)",
-    "[参考文献3](URL3)",
-    "[参考文献4](URL4)",
-    "[参考文献5](URL5)"
+    "[参考文献1のタイトル](URL1)",
+    "[参考文献2のタイトル](URL2)",
+    "[参考文献3のタイトル](URL3)",
+    "[参考文献4のタイトル](URL4)",
+    "[参考文献5のタイトル](URL5)"
   ],
-  "tags": ["#ラグジュアリーブランド", "#ブランド戦略", "#タグ3", "#タグ4", "#タグ5", "#タグ6", "#タグ7", "#タグ8"]
+  "tags": [
+    "#ラグジュアリーブランド",
+    "#ブランド戦略",
+    "#タグ3",
+    "#タグ4",
+    "#タグ5",
+    "#タグ6",
+    "#タグ7",
+    "#タグ8"
+  ]
 }
 \`\`\`
+
+JSON以外のテキストは出力しないでください。
 `;
 
-    console.log('プロンプト長:', articlePrompt.length, '文字');
+    console.log('Claude APIにリクエスト中...');
 
-    // Claude APIで記事生成
-    console.log('Claude APIにリクエスト送信中...');
     const message = await anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',
       max_tokens: 8000,
@@ -122,31 +116,16 @@ ${researchContent}
     });
 
     const responseText = message.content[0].text;
-    console.log('✅ Claude APIからの応答を受信しました（', responseText.length, '文字）');
+    console.log('Claude APIからの応答を受信しました');
 
-    // デバッグ: 応答の最初の500文字を表示
-    console.log('=== 応答プレビュー ===');
-    console.log(responseText.substring(0, 500));
-    console.log('...\n');
-
-    // JSONの抽出（```json と ``` の間、または {} のみ）
+    // JSONの抽出
     let articleData;
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/) || 
                      responseText.match(/(\{[\s\S]*\})/);
     
     if (jsonMatch) {
-      console.log('JSON抽出成功');
-      try {
-        articleData = JSON.parse(jsonMatch[1]);
-        console.log('✅ JSONパース成功');
-      } catch (parseError) {
-        console.error('❌ JSONパースエラー:', parseError.message);
-        console.error('抽出されたJSON:', jsonMatch[1].substring(0, 500));
-        throw parseError;
-      }
+      articleData = JSON.parse(jsonMatch[1]);
     } else {
-      console.error('❌ JSONが見つかりませんでした');
-      console.error('応答全体:', responseText);
       throw new Error('JSONが見つかりませんでした');
     }
 
@@ -157,13 +136,12 @@ ${researchContent}
         throw new Error(`必須フィールド ${field} が見つかりません`);
       }
     }
-    console.log('✅ 必須フィールド検証完了');
 
     // draft.jsonに保存
     await fs.writeFile('draft.json', JSON.stringify(articleData, null, 2));
     console.log('✅ draft.jsonを生成しました');
 
-    // generated_article.mdにも保存（デバッグ用）
+    // generated_article.mdにも保存
     const markdownContent = `# ${articleData.title}\n\n${articleData.introduction || ''}\n\n${articleData.content}\n\n## 参考\n${articleData.references.join('\n')}\n\n${articleData.tags.join(' ')}`;
     await fs.writeFile('generated_article.md', markdownContent);
     console.log('✅ generated_article.mdを生成しました');
@@ -174,34 +152,9 @@ ${researchContent}
     console.log('タグ数:', articleData.tags.length);
     console.log('参考文献数:', articleData.references.length);
 
-    process.exit(0);
-
   } catch (error) {
-    console.error('\n❌❌❌ エラーが発生しました ❌❌❌');
-    console.error('エラーメッセージ:', error.message);
-    console.error('エラースタック:');
+    console.error('❌ エラーが発生しました:', error.message);
     console.error(error.stack);
-    
-    // エラー詳細をファイルに保存
-    try {
-      await fs.writeFile('error_log.txt', `
-エラー発生時刻: ${new Date().toISOString()}
-エラーメッセージ: ${error.message}
-スタックトレース:
-${error.stack}
-
-環境変数:
-- TOPIC: ${process.env.TOPIC || '（空）'}
-- TARGET_AUDIENCE: ${process.env.TARGET_AUDIENCE || '（空）'}
-- THINKING_MEMO: ${process.env.THINKING_MEMO || '（空）'}
-- DIRECTION: ${process.env.DIRECTION || '（空）'}
-- FOCUS_AREA: ${process.env.FOCUS_AREA || '（空）'}
-`);
-      console.log('エラーログをerror_log.txtに保存しました');
-    } catch (writeError) {
-      console.error('エラーログの保存に失敗:', writeError.message);
-    }
-    
     process.exit(1);
   }
 }
