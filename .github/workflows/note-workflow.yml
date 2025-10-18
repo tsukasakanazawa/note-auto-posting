@@ -31,10 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
 
@@ -52,7 +52,7 @@ jobs:
         run: node research.mjs
 
       - name: Upload research results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: research-results
           path: research.md
@@ -62,10 +62,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
 
@@ -73,7 +73,7 @@ jobs:
         run: npm install
 
       - name: Download research results
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: research-results
 
@@ -88,7 +88,7 @@ jobs:
         run: node ai-writer.mjs
 
       - name: Upload draft
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: article-draft
           path: |
@@ -100,10 +100,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
 
@@ -114,7 +114,7 @@ jobs:
         run: npx playwright install chromium
 
       - name: Download draft
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: article-draft
 
@@ -125,7 +125,7 @@ jobs:
         run: node post.mjs
 
       - name: Upload post results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: post-results
           path: post_result.json
