@@ -1,201 +1,302 @@
-import fs from 'fs';
-import { Anthropic } from '@anthropic-ai/sdk';
+import Anthropic from '@anthropic-ai/sdk';
+import fs from 'fs/promises';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-async function generateArticle(topic, targetAudience, keywords, experience) {
-  console.log('=== 記事生成開始 ===');
-  console.log(`トピック: ${topic}`);
-  console.log(`ターゲット: ${targetAudience}`);
-  console.log(`キーワード: ${keywords}`);
-  console.log(`体験談: ${experience}`);
-
+async function generateArticle() {
   try {
-    // research.mdの内容を読み込み
+    // 環境変数から取得
+    const topic = process.env.TOPIC || '';
+    const targetAudience = process.env.TARGET_AUDIENCE || 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル';
+    const thinkingMemo = process.env.THINKING_MEMO || '';
+    const direction = process.env.DIRECTION || '';
+    const focusArea = process.env.FOCUS_AREA || '';
+
+    // リサーチ結果を読み込み
     let researchContent = '';
-    if (fs.existsSync('research.md')) {
-      researchContent = fs.readFileSync('research.md', 'utf8');
-      console.log('research.md読み込み完了');
-      console.log(`research.mdサイズ: ${researchContent.length} 文字`);
-    } else {
-      console.warn('research.mdが見つかりません。基本情報で記事を生成します。');
-      researchContent = `# ${topic}の基本情報\n\n${targetAudience}向けの${keywords}に関する情報。`;
+    try {
+      researchContent = await fs.readFile('research.md', 'utf-8');
+      console.log('リサーチ結果を読み込みました');
+    } catch (error) {
+      console.warn('research.mdが見つかりません。リサーチなしで記事を生成します。');
+      researchContent = '（リサーチデータなし）';
     }
 
+    console.log('記事生成を開始します...');
+    console.log(`トピック: ${topic || '（リサーチから抽出）'}`);
+    console.log(`ターゲット読者: ${targetAudience}`);
+    console.log(`思考メモ: ${thinkingMemo ? 'あり' : 'なし'}`);
+    console.log(`記事の方向性: ${direction || '（AIが判断）'}`);
+    console.log(`深掘り領域: ${focusArea || '（AIが判断）'}`);
+
+    // 記事生成プロンプト（完全版）
     const articlePrompt = `
-あなたは優秀なライターです。以下のリサーチ結果を基に、魅力的な記事を作成してください。
+あなたは、MBBの上位パートナー、電通、P&G、BOFで経営幹部を歴任し、現在は日本のとあるラグジュアリーブランドで日本法人のトップを務めるプロフェッショナルです。戦略コンサルティングの定量分析力と、クリエイティブエージェンシーの定性洞察力を兼ね備え、現場と戦略の解像度が世界一高く、ミクロ・マクロ両視点で傑出した人材です。
+
+また、ビジネスリーダーでありながら、ファッション史、現代アート、建築理論、クラシック音楽に精通し、ブランドの文化的文脈を深く理解しています。グローバルなトレンドと日本市場の特殊性を架橋する独自の視点を持っています。
+
+## 執筆の起点：あなた自身の思考メモ
+
+以下は、あなた（執筆者）が最近考えていること、気になっていることのメモです。この思考の断片から、読み応えのある記事を構築してください。
+
+\`\`\`
+${thinkingMemo || '（特になし。業界で今最もホットな話題を選んでください）'}
+\`\`\`
+
+## 執筆条件
+
+**明示的なトピック**: ${topic || '（上記の思考メモとリサーチ結果から、最適なトピックを決定してください）'}
+
+**ターゲット読者**: ${targetAudience}  
+→ この読者層が最も知りたい実務的な示唆と、業界外からは見えにくいインサイダー情報を提供してください。
+
+**記事の方向性**: ${direction || '（思考メモの文脈から、最適な方向性を判断してください）'}
+
+**深掘りすべき領域**: ${focusArea || '（思考メモとリサーチ結果から、最も価値の高い領域を特定してください）'}
 
 ## リサーチ結果
+
 ${researchContent}
 
-## 記事作成条件
-- トピック: ${topic}
-- ターゲット読者: ${targetAudience}
-- キーワード: ${keywords}
-- 体験談要素: ${experience}
+---
 
-## 記事の要件
-1. タイトルは魅力的で検索されやすいものにする
-2. 導入部分で読者の関心を引く
-3. 具体例や体験談を織り交ぜる
-4. 実践的なアドバイスを含める
-5. まとめで行動を促す
-6. 文字数: 2000-3000文字程度
-7. 見出し構造を適切に使用
+## 記事構築のアプローチ
+
+### 1. 思考メモの解釈
+- 思考メモから、**あなたが本当に書きたいこと**を抽出してください
+- 断片的なキーワードや疑問から、**記事の核となる問い**を明確化してください
+- 個人的な関心と、読者にとっての価値を**架橋**してください
+
+### 2. リサーチの活用
+- リサーチ結果を**そのまま羅列しない**でください
+- データや事例を、**あなた自身の洞察で編み直して**ください
+- 「なぜそのデータが重要なのか」という文脈を付与してください
+
+### 3. 記事の独自性
+- 他のメディアでは読めない、**あなたならではの視点**を前面に
+- 思考メモの個人的な問題意識を、**普遍的な業界テーマ**に昇華
+- データと物語、定量と定性を**有機的に統合**
+
+---
+
+## 記事の目的
+
+この記事は、**ビザスクなどのスポットコンサルで需要が高いが、通常はクローズドなラグジュアリーブランド業界の情報**を、NOTE読者に提供することを目的とします。
+
+**「ビザスクレベル」の品質基準**:
+- 1時間のインタビューで得られる情報密度
+- 実務経験者でなければ語れない具体的なプロセス・課題・解決策
+- 数字やデータだけでなく、「なぜそうなのか」という文脈的理解
+
+**必須要件**:
+- ✅ **ファクトチェック必須**: 具体的な数値、企業名、事例、年代などは必ず正確性を確認してください
+- ✅ **情報の希少性**: 他のメディアでは得られない業界インサイダーの視点を含めてください
+- ✅ **実務的価値**: 読者が明日から使える示唆や、意思決定の参考になる分析を提供してください
+
+---
+
+## 基本構成
+
+### 1. **タイトル** (1行)
+- **具体的**: 抽象的な表現を避け、記事の核心を明示
+- **検索されやすい**: SEOを意識したキーワード配置
+- **プロフェッショナル向け**: 専門性を感じさせる表現
+- **クリエイティブ**: 記憶に残る、知的好奇心を刺激する言い回し
+
+**良い例**:  
+「ルイ・ヴィトンの中国戦略転換：2024年、なぜ上海から成都へシフトしたのか」  
+「エルメスが職人に年収1200万円を払う理由：持続可能なラグジュアリーの経済学」
+
+**避けるべき例**:  
+「ラグジュアリーブランドの最新トレンド」（抽象的すぎる）
+
+### 2. **導入** (200-300文字)
+- 記事の問いかけと結論の概要を明示
+- 読者の関心を引く具体的なデータや事例で始める
+- 「なぜこの記事を読むべきか」を冒頭で伝える
+- **思考メモの問題意識を、読者に開かれた形で提示**
+
+### 3. **目次** (箇条書き、4-6セクション)
+- 各セクションのタイトルは具体的に
+- 読者が記事の全体像を把握できるように構成
+
+### 4. **本文** (2,500-3,000文字)
+
+**セクション構成の原則**:
+- トピックに応じて柔軟に構成（型にはめない）
+- 各セクション400-600文字を目安に
+- 必ず以下の要素を含める:
+  - **具体的なデータ**: 売上高、成長率、市場シェアなど（出典明記）
+  - **事例**: 企業名、ブランド名、具体的な施策を実名で
+  - **分析**: データや事例から導かれる洞察・示唆
+  - **定性的視点**: 数字だけでは語れない文化的・感覚的な要素
+
+**推奨構成パターン** (トピックに応じて調整):
+- 現状分析 → 背景・要因 → 事例紹介 → 今後の展望
+- または: 問題提起 → 歴史的文脈 → 最新動向 → 実務的示唆
+
+**最終セクション「まとめと今後の展望」**:
+- 記事全体の要点を3-4行で整理
+- 今後注目すべきポイント・トレンドを2-3点提示
+- 読者へのアクションヒントを含める
+
+### 5. **参考** (最低5つ)
+- 信頼できる情報源のURL（公式サイト、ニュースメディア、業界レポート等）
+- 形式: `[タイトル](URL)` または `タイトル - URL`
+- 可能な限り一次情報源を優先
+
+### 6. **ハッシュタグ** (8-10個)
+- 記事内容を反映した具体的なタグ
+- 検索性を高めるために、一般的なタグと専門的なタグをバランスよく配置
+
+---
+
+## 執筆スタイル
+
+### 文体
+- **プロフェッショナルかつ読みやすい**: 専門用語は使うが、過度に学術的にならない
+- **断定的すぎず、かといって曖昧でもない**: 「〜と考えられる」「〜の可能性が高い」など、適度なニュアンス
+- **敬体（です・ます調）**: 親しみやすさと専門性のバランス
+
+### 内容
+- **データと物語性の融合**: 数字だけでなく、その背景にある人間のドラマや戦略的意図を描写
+- **定量と定性のバランス**: 売上データだけでなく、ブランドの哲学や文化的意義も語る
+- **具体性の徹底**: 
+  - ○「2023年、シャネルはパリ・ヴァンドーム広場に旗艦店を新設し、1階フロア面積を従来比1.5倍に拡大した」
+  - ×「シャネルは最近店舗を拡大している」
+
+### インサイダー視点の表現例
+- 「業界内では〇〇が共通認識となっている」
+- 「実際の現場では、△△という課題が常に議論されている」
+- 「公式発表では触れられないが、□□の背景には××がある」
+- 「経営層の間では、◇◇が次の焦点になると見られている」
+
+---
+
+## 必須要素チェックリスト
+
+- ✅ 各セクションに最低1つの参考文献（URL形式で明記）
+- ✅ 本文中に最低3つの具体的な企業名・ブランド名
+- ✅ 最低2つの定量データ（出典明記）
+- ✅ 「まとめと今後の展望」セクションで締めくくる
+- ✅ 読者が「明日から使える」実務的示唆を最低1つ含める
+- ✅ 思考メモの問題意識が、記事のどこかに反映されている
+
+---
+
+## 注意事項
+
+### 表現上の注意
+- ❌ 「コンサルティングファーム出身」「戦略コンサルタントとして」などの表現は使わない
+- ✅ 「業界従事者として」「現場での経験から」「実務的な観点では」などの表現を使う
+
+### 内容上の注意
+- ❌ 学術論文のような固い文体
+- ❌ 抽象的な一般論の羅列
+- ❌ 未確認の情報や推測に基づく断定
+- ✅ 実務経験に基づく具体的な記述
+- ✅ ファッション、アート、建築、音楽などの文化的文脈への言及
+- ✅ グローバルトレンドと日本市場の特殊性の架橋
+
+### ファクトチェックの具体的方法
+- 企業の売上高・市場データ → 決算資料、IR情報、業界レポートで確認
+- ブランドの施策・出店情報 → 公式プレスリリース、ニュースメディアで確認
+- 歴史的事実・年代 → 複数の信頼できる情報源でクロスチェック
+- 不確実な情報は「〜と報じられている」「〜とされる」などの表現で留保
+
+---
 
 ## 出力形式
-JSON形式で以下の構造で出力してください：
+
+以下のJSON形式で記事を出力してください:
+
+\`\`\`json
 {
   "title": "記事タイトル",
-  "content": "記事本文（マークダウン形式）",
-  "summary": "記事の要約（100文字程度）",
-  "tags": ["タグ1", "タグ2", "タグ3"]
+  "introduction": "導入文（200-300文字）",
+  "tableOfContents": [
+    "セクション1のタイトル",
+    "セクション2のタイトル",
+    "セクション3のタイトル",
+    "セクション4のタイトル",
+    "まとめと今後の展望"
+  ],
+  "content": "# セクション1のタイトル\\n\\n本文...\\n\\n# セクション2のタイトル\\n\\n本文...（Markdown形式、2,500-3,000文字）",
+  "summary": "記事全体の要約（100-150文字、note投稿時の概要欄用）",
+  "references": [
+    "[参考文献1のタイトル](URL1)",
+    "[参考文献2のタイトル](URL2)",
+    "[参考文献3のタイトル](URL3)",
+    "[参考文献4のタイトル](URL4)",
+    "[参考文献5のタイトル](URL5)"
+  ],
+  "tags": [
+    "#ラグジュアリーブランド",
+    "#リテールビジネス",
+  ]
 }
+\`\`\`
 
-JSONのみを出力し、他の説明は含めないでください。
+**重要**: JSON以外のテキストは一切出力しないでください。上記の形式に厳密に従ってください。
 `;
 
-    console.log('Claude APIで記事生成中...');
-    console.log('プロンプト長:', articlePrompt.length);
-
+    // Claude APIで記事生成
     const message = await anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',
       max_tokens: 8000,
-      messages: [{
-        role: 'user',
-        content: articlePrompt
-      }]
+      temperature: 0.7,
+      messages: [
+        {
+          role: 'user',
+          content: articlePrompt
+        }
+      ]
     });
 
-    const articleResponse = message.content[0].text;
-    console.log('Claude API応答受信完了');
-    console.log('応答長:', articleResponse.length);
+    const responseText = message.content[0].text;
+    console.log('Claude APIからの応答を受信しました');
 
-    // JSONレスポンスをパース
+    // JSONの抽出（```json と ``` の間、または {} のみ）
     let articleData;
-    try {
-      // JSON部分のみ抽出（前後の説明文を除去）
-      const jsonMatch = articleResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        articleData = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('JSON形式のレスポンスが見つかりません');
+    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/) || 
+                     responseText.match(/(\{[\s\S]*\})/);
+    
+    if (jsonMatch) {
+      articleData = JSON.parse(jsonMatch[1]);
+    } else {
+      throw new Error('JSONが見つかりませんでした');
+    }
+
+    // 必須フィールドの検証
+    const requiredFields = ['title', 'content', 'summary', 'tags', 'references'];
+    for (const field of requiredFields) {
+      if (!articleData[field]) {
+        throw new Error(`必須フィールド ${field} が見つかりません`);
       }
-    } catch (parseError) {
-      console.warn('JSONパースエラー:', parseError.message);
-      console.warn('フォールバック記事データを作成します');
-      
-      articleData = {
-        title: `${topic}: ${targetAudience}のための実践ガイド`,
-        content: `# ${topic}: ${targetAudience}のための実践ガイド
-
-## はじめに
-${targetAudience}の皆さん、${keywords}について詳しく解説します。
-
-## ${topic}とは
-${researchContent.slice(0, 500)}...
-
-## 実践方法
-1. 基本的な理解を深める
-2. 具体的な手順を学ぶ
-3. 実際に試してみる
-4. 継続的に改善する
-
-## 体験談
-${experience}という体験を通じて、多くのことを学びました。
-
-## まとめ
-${topic}を活用することで、${targetAudience}の皆さんの業務効率が向上します。
-
-今日から実践してみてください。`,
-        summary: `${targetAudience}向けの${topic}実践ガイド。${keywords}を中心に解説。`,
-        tags: [topic, keywords, targetAudience]
-      };
     }
 
     // draft.jsonに保存
-    const draftData = {
-      ...articleData,
-      metadata: {
-        generated_at: new Date().toISOString(),
-        topic,
-        targetAudience,
-        keywords,
-        experience,
-        word_count: articleData.content.length
-      }
-    };
+    await fs.writeFile('draft.json', JSON.stringify(articleData, null, 2));
+    console.log('✅ draft.jsonを生成しました');
 
-    fs.writeFileSync('draft.json', JSON.stringify(draftData, null, 2), 'utf8');
-    console.log('draft.json作成完了');
-    console.log(`記事タイトル: ${articleData.title}`);
-    console.log(`記事文字数: ${articleData.content.length}`);
-    console.log(`ファイルサイズ: ${fs.statSync('draft.json').size} bytes`);
+    // generated_article.mdにも保存（デバッグ用）
+    const markdownContent = `# ${articleData.title}\n\n${articleData.introduction || ''}\n\n${articleData.content}\n\n## 参考\n${articleData.references.join('\n')}\n\n${articleData.tags.join(' ')}`;
+    await fs.writeFile('generated_article.md', markdownContent);
+    console.log('✅ generated_article.mdを生成しました');
 
-    // 検証
-    const savedDraft = JSON.parse(fs.readFileSync('draft.json', 'utf8'));
-    if (!savedDraft.title || !savedDraft.content) {
-      throw new Error('draft.jsonの内容が不完全です');
-    }
-
-    console.log('draft.json検証完了');
-    return true;
+    console.log('\n=== 生成された記事 ===');
+    console.log('タイトル:', articleData.title);
+    console.log('文字数:', articleData.content.length);
+    console.log('タグ数:', articleData.tags.length);
+    console.log('参考文献数:', articleData.references.length);
 
   } catch (error) {
-    console.error('記事生成エラー:', error);
-    console.error('エラー詳細:', error.stack);
-
-    // エラー時でも基本的なdraft.jsonを作成
-    const fallbackData = {
-      title: `${topic}について - ${targetAudience}向けガイド`,
-      content: `# ${topic}について
-
-## 概要
-${targetAudience}の皆さんへ、${keywords}に関する基本的な情報をお届けします。
-
-## 内容
-${experience}という観点から、実践的なアドバイスを提供します。
-
-## まとめ
-今後も${topic}について継続的に学習していきましょう。
-
-*注: API制限のためシンプルな内容となっています*`,
-      summary: `${topic}に関する${targetAudience}向けの基本ガイド`,
-      tags: [topic, keywords],
-      metadata: {
-        generated_at: new Date().toISOString(),
-        fallback: true,
-        original_error: error.message
-      }
-    };
-
-    fs.writeFileSync('draft.json', JSON.stringify(fallbackData, null, 2), 'utf8');
-    console.log('フォールバック draft.json 作成完了');
-    return false;
+    console.error('❌ エラーが発生しました:', error.message);
+    console.error(error.stack);
+    process.exit(1);
   }
 }
 
-// コマンドライン引数から値を取得
-const [,, topic, targetAudience, keywords, experience] = process.argv;
-
-if (!topic || !targetAudience || !keywords || !experience) {
-  console.error('使用法: node ai-writer.mjs <topic> <targetAudience> <keywords> <experience>');
-  process.exit(1);
-}
-
-// 記事生成実行
-generateArticle(topic, targetAudience, keywords, experience)
-  .then((success) => {
-    if (success) {
-      console.log('=== 記事生成正常完了 ===');
-    } else {
-      console.log('=== 記事生成部分完了（フォールバック使用） ===');
-    }
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('=== 記事生成失敗 ===', error);
-    process.exit(1);
-  });
+generateArticle();
