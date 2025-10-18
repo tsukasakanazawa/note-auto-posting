@@ -1,136 +1,132 @@
-name: ai-generate-and-post
+name: Auto Post to Note
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 毎日午前9時(JST)に実行
+  workflow_dispatch:      # 手動実行も可能
     inputs:
       topic:
-        description: '記事のトピック'
-        required: true
-        default: 'AI活用術'
+        description: '記事のトピック（空欄可）'
+        required: false
+        default: ''
       target_audience:
         description: 'ターゲット読者'
-        required: true
-        default: 'ビジネスパーソン'
-      keywords:
-        description: 'キーワード'
-        required: true
-        default: 'AIで生産性向上'
-      experience:
-        description: '体験談'
-        required: true
-        default: '実際に試してみる'
-      is_published:
-        description: '公開フラグ'
-        required: true
-        default: 'false'
+        required: false
+        default: 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル'
+      thinking_memo:
+        description: '思考メモ（書きたい内容、気になっていること、断片的なアイデアなど自由にコピペ）'
+        required: false
+        default: ''
+      direction:
+        description: '記事の方向性（分析系/事例紹介/トレンド解説/実務Tips など、空欄可）'
+        required: false
+        default: ''
+      focus_area:
+        description: '特に深掘りしたい領域（ブランド名、地域、テーマなど、空欄可）'
+        required: false
+        default: ''
 
 jobs:
   research:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-        
+        uses: actions/checkout@v3
+
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
-          
+
       - name: Install dependencies
         run: npm install
-        
-      - name: Research Phase
-        run: |
-          echo "=== リサーチフェーズ開始 ==="
-          node research.mjs "${{ github.event.inputs.topic }}" "${{ github.event.inputs.target_audience }}" "${{ github.event.inputs.keywords }}"
-          echo "=== リサーチフェーズ完了 ==="
-          ls -la *.md || echo "research.md が見つかりません"
+
+      - name: Run research
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          
+          TOPIC: ${{ github.event.inputs.topic || '' }}
+          TARGET_AUDIENCE: ${{ github.event.inputs.target_audience || 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル' }}
+          THINKING_MEMO: ${{ github.event.inputs.thinking_memo || '' }}
+          DIRECTION: ${{ github.event.inputs.direction || '' }}
+          FOCUS_AREA: ${{ github.event.inputs.focus_area || '' }}
+        run: node research.mjs
+
       - name: Upload research results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: research-results
           path: research.md
-          retention-days: 1
 
   write:
-    runs-on: ubuntu-latest
     needs: research
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-        
+        uses: actions/checkout@v3
+
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
-          
+
       - name: Install dependencies
         run: npm install
-        
+
       - name: Download research results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: research-results
-          
-      - name: Write Phase
-        run: |
-          echo "=== 記事作成フェーズ開始 ==="
-          echo "研究結果の確認:"
-          ls -la research.md || echo "research.md が見つかりません"
-          cat research.md || echo "research.md の内容を読み込めません"
-          
-          echo "記事生成実行:"
-          node ai-writer.mjs "${{ github.event.inputs.topic }}" "${{ github.event.inputs.target_audience }}" "${{ github.event.inputs.keywords }}" "${{ github.event.inputs.experience }}"
-          
-          echo "生成結果の確認:"
-          ls -la draft.json || echo "draft.json が見つかりません"
-          echo "=== 記事作成フェーズ完了 ==="
+
+      - name: Generate article
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          
+          TOPIC: ${{ github.event.inputs.topic || '' }}
+          TARGET_AUDIENCE: ${{ github.event.inputs.target_audience || 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル' }}
+          THINKING_MEMO: ${{ github.event.inputs.thinking_memo || '' }}
+          DIRECTION: ${{ github.event.inputs.direction || '' }}
+          FOCUS_AREA: ${{ github.event.inputs.focus_area || '' }}
+        run: node ai-writer.mjs
+
       - name: Upload draft
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: article-draft
-          path: draft.json
-          retention-days: 1
+          path: |
+            draft.json
+            generated_article.md
 
   post:
-    runs-on: ubuntu-latest
     needs: write
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-        
+        uses: actions/checkout@v3
+
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
-          
+
       - name: Install dependencies
         run: npm install
-        
+
       - name: Install Playwright browsers
         run: npx playwright install chromium
-        
-      - name: Download article draft
-        uses: actions/download-artifact@v4
+
+      - name: Download draft
+        uses: actions/download-artifact@v3
         with:
           name: article-draft
-          
-      - name: Post Phase
-        run: |
-          echo "=== 投稿フェーズ開始 ==="
-          echo "記事ドラフトの確認:"
-          ls -la draft.json || echo "draft.json が見つかりません"
-          
-          echo "note.com投稿実行:"
-          node post.mjs "${{ github.event.inputs.topic }}" "${{ github.event.inputs.target_audience }}" "${{ github.event.inputs.keywords }}" "${{ github.event.inputs.experience }}" "${{ github.event.inputs.is_published }}"
-          echo "=== 投稿フェーズ完了 ==="
+
+      - name: Post to Note
         env:
-          NOTE_STORAGE_STATE_JSON: ${{ secrets.NOTE_STORAGE_STATE_JSON }}
           NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
           NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
+        run: node post.mjs
+
+      - name: Upload post results
+        uses: actions/upload-artifact@v3
+        with:
+          name: post-results
+          path: post_result.json
+        if: always()
