@@ -5,91 +5,119 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-async function conductResearch() {
+async function conductDailyResearch() {
   try {
-    const topic = process.env.TOPIC || 'ラグジュアリーブランドの最新トレンド';
-    const targetAudience = process.env.TARGET_AUDIENCE || 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル';
-    const thinkingMemo = process.env.THINKING_MEMO || '';
-    const direction = process.env.DIRECTION || '';
-    const focusArea = process.env.FOCUS_AREA || '';
-
-    console.log('リサーチを開始します...');
-    console.log('トピック:', topic);
+    console.log('=== ラグジュアリーブランド業界 朝刊リサーチ開始 ===');
+    console.log('日付:', new Date().toLocaleDateString('ja-JP'));
 
     const researchPrompt = `
-あなたはラグジュアリーブランド業界の専門家です。以下の条件でリサーチを行ってください。
+あなたはラグジュアリーブランド業界の情報収集のプロフェッショナルです。
 
-${thinkingMemo ? `## 執筆者の思考メモ\n${thinkingMemo}\n\n` : ''}
+## ミッション
+Bloombergの「1日を始める前に読んでおきたいニュース5本」のラグジュアリーブランド版を作成するための、過去24時間の重要ニュースをリサーチしてください。
 
-## リサーチ条件
-- トピック: ${topic}
-- ターゲット読者: ${targetAudience}
-${direction ? `- 方向性: ${direction}` : ''}
-${focusArea ? `- 深掘り領域: ${focusArea}` : ''}
+## リサーチ対象
+1. **主要ブランドの動向**
+   - LVMH、Kering、Richemont、Hermès、Chanelなど
+   - 新規出店、閉店、リニューアル
+   - 決算発表、業績予想修正
 
-## リサーチすべき内容
-1. 業界の最新動向（過去6ヶ月）
-2. 具体的な事例（企業名・ブランド名明記）
-3. 重要なデータ・統計（出典付き）
-4. 今後の展望
-5. 参考情報源（URL、最低5つ）
+2. **市場動向**
+   - 中国・日本・米国・欧州の消費トレンド
+   - 為替、株価の影響
+   - 業界全体の成長率・予測
 
-${thinkingMemo ? '思考メモから執筆者の意図を読み取り、最適なトピックとアプローチを提案してください。' : ''}
+3. **戦略・経営**
+   - 経営者の交代、組織変更
+   - M&A、提携、資本参加
+   - デジタル戦略、サステナビリティ施策
+
+4. **クリエイティブ**
+   - デザイナーの異動
+   - コラボレーション発表
+   - 重要なコレクション発表
+
+5. **業界を超えたトレンド**
+   - ファッション、アート、建築、音楽
+   - セレブリティの動き
+   - 文化的・社会的な変化
+
+## 出力形式
 
 以下のMarkdown形式で出力してください:
 
-# リサーチ結果
+# ラグジュアリーブランド業界の朝刊 - リサーチ結果
 
-${thinkingMemo ? '## 【思考メモの解釈】\n（思考メモから読み取った執筆者の意図）\n\n' : ''}
+## 日付
+${new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })}
 
-## 【推奨トピック】
-（最終的に記事化すべきトピック）
+## 今日の注目ニュース TOP 5
 
-## 【業界動向】
-（最新のトレンド、データ、ニュース）
+### 1. [見出し]
+- **概要**: （100文字以内）
+- **重要度**: ★★★★★（5段階）
+- **影響**: 業界全体 / 特定ブランド / 市場
+- **データ**: （具体的な数字があれば）
+- **出典**: URL
 
-## 【具体的事例】
-（企業名・ブランド名を明記、3-5個）
+### 2. [見出し]
+（同様の形式）
 
-## 【重要なデータ・統計】
-（数字で語れる事実、出典付き）
+### 3. [見出し]
+（同様の形式）
 
-## 【今後の展望】
-（向こう6-12ヶ月の予測）
+### 4. [見出し]
+（同様の形式）
 
-## 【参考情報源】
-（信頼できる情報源のURL、最低5つ）
+### 5. [見出し]
+（同様の形式）
+
+## その他の注目ニュース（3-5個）
+- **[見出し]**: （50文字以内の概要）
+- **[見出し]**: （50文字以内の概要）
+
+## 今日のキーワード
+#キーワード1 #キーワード2 #キーワード3
+
+## 参考情報源
+- [情報源1](URL1)
+- [情報源2](URL2)
+- [情報源3](URL3)
+- [情報源4](URL4)
+- [情報源5](URL5)
+
+---
+
+**注意**: 
+- 必ず過去24-48時間以内の最新情報を優先してください
+- 具体的な企業名、ブランド名、数字、日付を明記してください
+- 信頼できる情報源（公式発表、Bloomberg、WWD、BOF、日経など）を優先してください
 `;
 
     const message = await anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',
       max_tokens: 4000,
       temperature: 0.7,
-      messages: [
-        {
-          role: 'user',
-          content: researchPrompt
-        }
-      ]
+      messages: [{ role: 'user', content: researchPrompt }]
     });
 
     const researchResult = message.content[0].text;
     
     await fs.writeFile('research.md', researchResult);
     console.log('✅ リサーチ完了: research.md を生成しました');
+    console.log('リサーチ結果の長さ:', researchResult.length, '文字');
 
   } catch (error) {
     console.error('❌ リサーチエラー:', error.message);
     
     // フォールバック
-    const fallbackContent = `# リサーチ結果
+    const fallbackContent = `# ラグジュアリーブランド業界の朝刊 - リサーチ結果
 
-## トピック
-${process.env.TOPIC || 'ラグジュアリーブランドの最新動向'}
+## 日付
+${new Date().toLocaleDateString('ja-JP')}
 
-${process.env.THINKING_MEMO ? `## 思考メモ\n${process.env.THINKING_MEMO}\n\n` : ''}
-
-リサーチAPIでエラーが発生したため、上記の情報のみで記事を生成します。
+## 注意
+リサーチAPIでエラーが発生しました。一般的な業界トレンドに基づいて記事を生成します。
 `;
     
     await fs.writeFile('research.md', fallbackContent);
@@ -97,4 +125,4 @@ ${process.env.THINKING_MEMO ? `## 思考メモ\n${process.env.THINKING_MEMO}\n\n
   }
 }
 
-conductResearch();
+conductDailyResearch();
