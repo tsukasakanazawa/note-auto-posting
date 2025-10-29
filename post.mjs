@@ -25,38 +25,89 @@ async function postToNote() {
 
     console.log('ログインページにアクセス中...');
     await page.goto('https://note.com/login');
-    await page.waitForLoadState('load');
+    await page.waitForLoadState('networkidle');
     await page.waitForTimeout(3000);
 
     // ログインページのスクリーンショット
-    await page.screenshot({ path: '01_login.png' });
+    await page.screenshot({ path: '01_login.png', fullPage: true });
     console.log('スクリーンショット保存: 01_login.png');
 
-    // メールアドレス入力
+    // ページ内の全てのinput要素を確認（デバッグ用）
+    const allInputs = await page.$$('input');
+    console.log(`検出されたinput要素数: ${allInputs.length}`);
+    
+    for (let i = 0; i < allInputs.length; i++) {
+      const input = allInputs[i];
+      const type = await input.getAttribute('type');
+      const name = await input.getAttribute('name');
+      const placeholder = await input.getAttribute('placeholder');
+      const id = await input.getAttribute('id');
+      console.log(`Input ${i}: type="${type}", name="${name}", placeholder="${placeholder}", id="${id}"`);
+    }
+
+    // メールアドレス入力（複数のセレクタを試す）
     console.log('メールアドレス入力中...');
-    const emailInput = page.locator('input[name="login"]').first();
-    await emailInput.waitFor({ timeout: 10000 });
+    
+    let emailInput = null;
+    
+    // 試行1: placeholder属性で探す
+    try {
+      emailInput = page.locator('input[placeholder*="mail"]').or(page.locator('input[placeholder*="note ID"]')).first();
+      await emailInput.waitFor({ timeout: 5000, state: 'visible' });
+      console.log('✅ セレクタ成功: placeholder属性');
+    } catch (e) {
+      console.log('⚠️ placeholder属性で見つからず');
+    }
+    
+    // 試行2: type="text"の最初の要素
+    if (!emailInput) {
+      try {
+        emailInput = page.locator('input[type="text"]').first();
+        await emailInput.waitFor({ timeout: 5000, state: 'visible' });
+        console.log('✅ セレクタ成功: type="text"');
+      } catch (e) {
+        console.log('⚠️ type="text"で見つからず');
+      }
+    }
+    
+    // 試行3: type="email"
+    if (!emailInput) {
+      try {
+        emailInput = page.locator('input[type="email"]').first();
+        await emailInput.waitFor({ timeout: 5000, state: 'visible' });
+        console.log('✅ セレクタ成功: type="email"');
+      } catch (e) {
+        console.log('⚠️ type="email"で見つからず');
+      }
+    }
+
+    if (!emailInput) {
+      throw new Error('メールアドレス入力欄が見つかりません');
+    }
+
     await emailInput.fill(email);
     console.log('✅ メールアドレス入力完了');
+    await page.waitForTimeout(1000);
 
     // パスワード入力
     console.log('パスワード入力中...');
     const passwordInput = page.locator('input[type="password"]').first();
-    await passwordInput.waitFor({ timeout: 10000 });
+    await passwordInput.waitFor({ timeout: 10000, state: 'visible' });
     await passwordInput.fill(password);
     console.log('✅ パスワード入力完了');
 
     await page.waitForTimeout(1000);
+    await page.screenshot({ path: '02_credentials_filled.png', fullPage: true });
 
     // ログインボタンクリック
     console.log('ログインボタンをクリック中...');
     const loginBtn = page.locator('button:has-text("ログイン")').first();
-    await loginBtn.waitFor({ timeout: 10000 });
+    await loginBtn.waitFor({ timeout: 10000, state: 'visible' });
     await loginBtn.click();
     console.log('✅ ログインボタンクリック完了');
 
     await page.waitForTimeout(5000);
-    await page.screenshot({ path: '02_after_login.png' });
+    await page.screenshot({ path: '03_after_login.png', fullPage: true });
 
     const currentUrl = page.url();
     console.log('ログイン後のURL:', currentUrl);
@@ -64,11 +115,11 @@ async function postToNote() {
     // 記事作成ページへ
     console.log('記事作成ページへ移動中...');
     await page.goto('https://note.com/post');
-    await page.waitForLoadState('load');
+    await page.waitForLoadState('networkidle');
     await page.waitForTimeout(4000);
     
-    await page.screenshot({ path: '03_post_page.png' });
-    console.log('スクリーンショット保存: 03_post_page.png');
+    await page.screenshot({ path: '04_post_page.png', fullPage: true });
+    console.log('スクリーンショット保存: 04_post_page.png');
 
     // ページ内のcontenteditable要素を確認
     const editableCount = await page.locator('[contenteditable="true"]').count();
@@ -77,13 +128,11 @@ async function postToNote() {
     // タイトル入力
     console.log('タイトル入力中...');
     
-    // JavaScriptで直接タイトルを設定
     await page.evaluate((title) => {
       const editables = document.querySelectorAll('[contenteditable="true"]');
       console.log('contenteditable数:', editables.length);
       
       if (editables.length >= 1) {
-        // 最初の要素がタイトル
         const titleElement = editables[0];
         titleElement.focus();
         titleElement.innerText = title;
@@ -95,7 +144,7 @@ async function postToNote() {
     
     console.log('✅ タイトル入力完了');
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: '04_title_filled.png' });
+    await page.screenshot({ path: '05_title_filled.png', fullPage: true });
 
     // 本文入力
     console.log('本文入力中...');
@@ -105,7 +154,6 @@ async function postToNote() {
       const editables = document.querySelectorAll('[contenteditable="true"]');
       
       if (editables.length >= 2) {
-        // 2番目の要素が本文
         const contentElement = editables[1];
         contentElement.focus();
         contentElement.innerText = content;
@@ -117,12 +165,11 @@ async function postToNote() {
     
     console.log('✅ 本文入力完了');
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: '05_content_filled.png' });
+    await page.screenshot({ path: '06_content_filled.png', fullPage: true });
 
     // 公開ボタンを探す
     console.log('公開ボタンを探しています...');
     
-    // ページ内の全てのボタンをチェック
     const allButtons = await page.locator('button').all();
     console.log('ページ内のボタン数:', allButtons.length);
     
@@ -141,12 +188,11 @@ async function postToNote() {
     }
 
     if (publishClicked) {
-      await page.screenshot({ path: '06_publish_dialog.png' });
+      await page.screenshot({ path: '07_publish_dialog.png', fullPage: true });
       
-      // 公開確認ダイアログで再度「公開する」をクリック
       try {
         const confirmBtn = page.locator('button:has-text("公開する")').first();
-        await confirmBtn.waitFor({ timeout: 5000 });
+        await confirmBtn.waitFor({ timeout: 5000, state: 'visible' });
         await confirmBtn.click();
         console.log('✅ 公開確認ボタンクリック完了');
         await page.waitForTimeout(5000);
@@ -157,7 +203,7 @@ async function postToNote() {
       console.log('⚠️ 公開ボタンが見つかりません（下書き保存）');
     }
 
-    await page.screenshot({ path: '07_final.png' });
+    await page.screenshot({ path: '08_final.png', fullPage: true });
 
     const finalUrl = page.url();
     console.log('最終URL:', finalUrl);
@@ -180,7 +226,7 @@ async function postToNote() {
       try {
         const page = (await browser.contexts())[0]?.pages()[0];
         if (page) {
-          await page.screenshot({ path: 'error.png' });
+          await page.screenshot({ path: 'error.png', fullPage: true });
         }
       } catch (e) {}
     }
