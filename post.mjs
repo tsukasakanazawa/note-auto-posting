@@ -27,51 +27,185 @@ async function postToNote() {
 
     // noteログインページ
     console.log('ログインページにアクセス中...');
-    await page.goto('https://note.com/login');
-    await page.waitForTimeout(2000);
-
-    // メールアドレス入力
-    console.log('メールアドレス入力中...');
-    await page.fill('input[type="email"]', email);
-    await page.fill('input[type="password"]', password);
-    
-    // ログインボタンクリック
-    console.log('ログイン中...');
-    await page.click('button[type="submit"]');
+    await page.goto('https://note.com/login', { waitUntil: 'networkidle' });
     await page.waitForTimeout(3000);
+
+    // スクリーンショットでデバッグ
+    await page.screenshot({ path: 'login_page.png' });
+    console.log('ログインページのスクリーンショット保存完了');
+
+    // メールアドレス入力（複数のセレクタを試す）
+    console.log('メールアドレス入力フィールドを探しています...');
+    const emailSelectors = [
+      'input[type="email"]',
+      'input[name="email"]',
+      'input[placeholder*="メール"]',
+      'input[placeholder*="mail"]',
+      'input[id*="email"]',
+      '#email'
+    ];
+
+    let emailInput = null;
+    for (const selector of emailSelectors) {
+      try {
+        emailInput = await page.waitForSelector(selector, { timeout: 5000 });
+        if (emailInput) {
+          console.log('メールアドレス入力フィールド発見:', selector);
+          await page.fill(selector, email);
+          break;
+        }
+      } catch (e) {
+        console.log('セレクタ失敗:', selector);
+      }
+    }
+
+    if (!emailInput) {
+      throw new Error('メールアドレス入力フィールドが見つかりません');
+    }
+
+    // パスワード入力
+    console.log('パスワード入力中...');
+    const passwordSelectors = [
+      'input[type="password"]',
+      'input[name="password"]',
+      'input[placeholder*="パスワード"]',
+      'input[id*="password"]',
+      '#password'
+    ];
+
+    let passwordInput = null;
+    for (const selector of passwordSelectors) {
+      try {
+        passwordInput = await page.waitForSelector(selector, { timeout: 5000 });
+        if (passwordInput) {
+          console.log('パスワード入力フィールド発見:', selector);
+          await page.fill(selector, password);
+          break;
+        }
+      } catch (e) {
+        console.log('セレクタ失敗:', selector);
+      }
+    }
+
+    if (!passwordInput) {
+      throw new Error('パスワード入力フィールドが見つかりません');
+    }
+
+    await page.waitForTimeout(1000);
+
+    // ログインボタンクリック
+    console.log('ログインボタンを探しています...');
+    const loginButtonSelectors = [
+      'button[type="submit"]',
+      'button:has-text("ログイン")',
+      'input[type="submit"]',
+      'a:has-text("ログイン")'
+    ];
+
+    let loginButton = null;
+    for (const selector of loginButtonSelectors) {
+      try {
+        loginButton = await page.waitForSelector(selector, { timeout: 5000 });
+        if (loginButton) {
+          console.log('ログインボタン発見:', selector);
+          await loginButton.click();
+          break;
+        }
+      } catch (e) {
+        console.log('セレクタ失敗:', selector);
+      }
+    }
+
+    if (!loginButton) {
+      throw new Error('ログインボタンが見つかりません');
+    }
+
+    console.log('ログイン処理中...');
+    await page.waitForTimeout(5000);
+
+    // ログイン後のスクリーンショット
+    await page.screenshot({ path: 'after_login.png' });
+    console.log('ログイン後のスクリーンショット保存完了');
 
     // 記事作成ページへ
     console.log('記事作成ページへ移動中...');
-    await page.goto('https://note.com/post');
-    await page.waitForTimeout(2000);
+    await page.goto('https://note.com/post', { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+
+    await page.screenshot({ path: 'post_page.png' });
+    console.log('記事作成ページのスクリーンショット保存完了');
 
     // タイトル入力
     console.log('タイトル入力中...');
-    const titleSelector = 'textarea[placeholder*="タイトル"], input[placeholder*="タイトル"], [data-placeholder*="タイトル"]';
-    await page.waitForSelector(titleSelector, { timeout: 10000 });
-    await page.fill(titleSelector, draftData.title);
+    const titleSelectors = [
+      'textarea[placeholder*="タイトル"]',
+      'input[placeholder*="タイトル"]',
+      '[data-placeholder*="タイトル"]',
+      'textarea[name="title"]',
+      'input[name="title"]'
+    ];
+
+    let titleInput = null;
+    for (const selector of titleSelectors) {
+      try {
+        titleInput = await page.waitForSelector(selector, { timeout: 5000 });
+        if (titleInput) {
+          console.log('タイトル入力フィールド発見:', selector);
+          await page.fill(selector, draftData.title);
+          break;
+        }
+      } catch (e) {
+        console.log('セレクタ失敗:', selector);
+      }
+    }
+
+    if (!titleInput) {
+      throw new Error('タイトル入力フィールドが見つかりません');
+    }
+
     await page.waitForTimeout(1000);
 
     // 本文入力
     console.log('本文入力中...');
-    
-    // 本文全体を組み立て
     const fullContent = `${draftData.introduction || ''}\n\n${draftData.content}\n\n## 参考\n${draftData.references.join('\n')}\n\n${draftData.tags.join(' ')}`;
-    
-    const contentSelector = '[contenteditable="true"][data-placeholder*="本文"], [contenteditable="true"]';
-    await page.waitForSelector(contentSelector, { timeout: 10000 });
-    await page.click(contentSelector);
-    await page.waitForTimeout(500);
-    
-    // テキストを入力
-    await page.evaluate((text) => {
-      const editor = document.querySelector('[contenteditable="true"]');
-      if (editor) {
-        editor.innerText = text;
+
+    const contentSelectors = [
+      '[contenteditable="true"][data-placeholder*="本文"]',
+      '[contenteditable="true"]',
+      'textarea[placeholder*="本文"]',
+      'div[role="textbox"]'
+    ];
+
+    let contentEditor = null;
+    for (const selector of contentSelectors) {
+      try {
+        contentEditor = await page.waitForSelector(selector, { timeout: 5000 });
+        if (contentEditor) {
+          console.log('本文入力フィールド発見:', selector);
+          await page.click(selector);
+          await page.waitForTimeout(500);
+          
+          await page.evaluate((text) => {
+            const editor = document.querySelector('[contenteditable="true"]');
+            if (editor) {
+              editor.innerText = text;
+            }
+          }, fullContent);
+          break;
+        }
+      } catch (e) {
+        console.log('セレクタ失敗:', selector);
       }
-    }, fullContent);
-    
+    }
+
+    if (!contentEditor) {
+      throw new Error('本文入力フィールドが見つかりません');
+    }
+
     await page.waitForTimeout(2000);
+
+    await page.screenshot({ path: 'before_publish.png' });
+    console.log('公開前のスクリーンショット保存完了');
 
     // 公開ボタンを探す
     console.log('公開ボタンを探しています...');
@@ -88,46 +222,55 @@ async function postToNote() {
         publishButton = await page.waitForSelector(selector, { timeout: 3000 });
         if (publishButton) {
           console.log('公開ボタン発見:', selector);
+          await publishButton.click();
+          await page.waitForTimeout(5000);
           break;
         }
       } catch (e) {
-        // 次のセレクタを試す
+        console.log('セレクタ失敗:', selector);
       }
     }
 
     if (!publishButton) {
       console.log('⚠️ 公開ボタンが見つかりません。下書き保存されている可能性があります。');
-    } else {
-      console.log('公開ボタンをクリック中...');
-      await publishButton.click();
-      await page.waitForTimeout(3000);
-
-      // 投稿完了確認
-      const currentUrl = page.url();
-      console.log('現在のURL:', currentUrl);
-
-      if (currentUrl.includes('/n/')) {
-        console.log('✅ 記事投稿成功！');
-        console.log('記事URL:', currentUrl);
-      } else {
-        console.log('⚠️ 投稿完了の確認ができませんでした');
-      }
     }
+
+    // 投稿完了確認
+    const currentUrl = page.url();
+    console.log('現在のURL:', currentUrl);
+
+    await page.screenshot({ path: 'after_publish.png' });
+    console.log('公開後のスクリーンショット保存完了');
 
     // 結果をファイルに保存
     const result = {
       success: true,
       title: draftData.title,
-      url: page.url(),
+      url: currentUrl,
       timestamp: new Date().toISOString()
     };
 
     await fs.writeFile('post_result.json', JSON.stringify(result, null, 2));
     console.log('✅ post_result.json保存完了');
 
+    console.log('✅ NOTE投稿処理完了！');
+
   } catch (error) {
     console.error('❌ 投稿エラー:', error.message);
     console.error(error.stack);
+
+    // エラー時のスクリーンショット
+    if (browser) {
+      try {
+        const page = (await browser.contexts())[0]?.pages()[0];
+        if (page) {
+          await page.screenshot({ path: 'error_screenshot.png' });
+          console.log('エラー時のスクリーンショット保存完了');
+        }
+      } catch (e) {
+        console.error('スクリーンショット保存失敗:', e.message);
+      }
+    }
 
     // エラー結果を保存
     const errorResult = {
