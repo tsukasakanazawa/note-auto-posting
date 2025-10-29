@@ -56,7 +56,7 @@ async function conductDailyResearch() {
 `;
 
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-5-haiku-20241022',  // ✅ Haikuに変更
       max_tokens: 4000,
       temperature: 0.7,
       messages: [{ role: 'user', content: researchPrompt }]
@@ -74,4 +74,3 @@ async function conductDailyResearch() {
 }
 
 conductDailyResearch();
-
