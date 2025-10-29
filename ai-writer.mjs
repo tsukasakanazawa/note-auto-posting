@@ -11,8 +11,9 @@ async function generateMorningBrief() {
 
     let researchContent = '';
     try {
-      researchContent = await fs.readFile('research.md', 'utf-8');
-      console.log('リサーチ結果読み込み完了');
+      const fullResearch = await fs.readFile('research.md', 'utf-8');
+      researchContent = fullResearch.substring(0, 2000);
+      console.log('リサーチ結果読み込み:', researchContent.length, '文字');
     } catch (error) {
       researchContent = 'リサーチデータなし';
     }
@@ -24,60 +25,31 @@ async function generateMorningBrief() {
       weekday: 'long'
     });
 
-    const articlePrompt = `
-あなたはラグジュアリーブランド業界の日本法人トップです。
+    const articlePrompt = `ラグジュアリーブランド業界の日本法人トップとして、Bloomberg風の朝刊を作成。
 
-Bloomberg「Five Things to Start Your Day」風の朝刊を作成してください。
-
-## リサーチ結果
+リサーチ:
 ${researchContent}
 
-## フォーマット
+以下のJSON形式で出力:
 
 \`\`\`json
 {
-  "title": "一日を始める前に読んでおきたいラグジュアリーブランド業界のニュース5本- ${today}",
+  "title": "一日を始める前に読んでおきたいラグジュアリーブランド業界のニュース5本 - ${today}",
   "introduction": "一日を始める前に読んでおきたいラグジュアリーブランド業界のニュース5本",
-  "tableOfContents": [
-    "1. [ニュース1見出し]",
-    "2. [ニュース2見出し]",
-    "3. [ニュース3見出し]",
-    "4. [ニュース4見出し]",
-    "5. [ニュース5見出し]"
-  ],
-  "content": "# 1. [見出し]\\n\\n[本文200-300文字]\\n\\n# 2. [見出し]\\n\\n[本文200-300文字]\\n\\n# 3. [見出し]\\n\\n[本文200-300文字]\\n\\n# 4. [見出し]\\n\\n[本文200-300文字]\\n\\n# 5. [見出し]\\n\\n[本文200-300文字]\\n\\n---\\n\\n## その他の注目ニュース\\n\\n- [ニュース6]\\n- [ニュース7]\\n- [ニュース8]",
+  "tableOfContents": ["1. ニュース1", "2. ニュース2", "3. ニュース3", "4. ニュース4", "5. ニュース5"],
+  "content": "# 1. [見出し]\\n\\n本文200-300文字\\n\\n# 2. [見出し]\\n\\n本文200-300文字\\n\\n# 3. [見出し]\\n\\n本文200-300文字\\n\\n# 4. [見出し]\\n\\n本文200-300文字\\n\\n# 5. [見出し]\\n\\n本文250-300文字",
   "summary": "マーケットで話題になったニュースをお届けします。一日を始めるにあたって押さえておきたいニュースはこちら。",
-  "references": [
-    "[参考1](URL1)",
-    "[参考2](URL2)",
-    "[参考3](URL3)",
-    "[参考4](URL4)",
-    "[参考5](URL5)"
-  ],
-  "tags": [
-    "#ラグジュアリーブランド",
-    "#業界ニュース",
-    "#朝刊",
-    "#ファッションビジネス",
-    "#LVMH",
-    "#Kering",
-    "#市場動向",
-    "#最新トレンド"
-  ]
+  "references": ["[参考1](URL1)", "[参考2](URL2)", "[参考3](URL3)", "[参考4](URL4)", "[参考5](URL5)"],
+  "tags": ["#ラグジュアリーブランド", "#業界ニュース", "#朝刊", "#ファッションビジネス", "#LVMH", "#Kering", "#市場動向", "#最新トレンド"]
 }
 \`\`\`
 
-ルール:
-- 各ニュース200-300文字
-- 具体的な数字・企業名必須
-- 全体1,500-2,000文字
-- JSON以外出力禁止
-`;
+JSON以外出力禁止。各ニュース250-300文字、具体的な企業名・数字必須。`;
 
     console.log('Claude APIリクエスト中...');
 
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-5-haiku-20241022',  // ✅ Haikuに変更
       max_tokens: 6000,
       temperature: 0.7,
       messages: [{ role: 'user', content: articlePrompt }]
@@ -105,8 +77,13 @@ ${researchContent}
     await fs.writeFile('generated_article.md', markdown);
     console.log('✅ generated_article.md生成');
 
+    console.log('\n=== 完了 ===');
+    console.log('タイトル:', articleData.title);
+    console.log('文字数:', articleData.content.length);
+
   } catch (error) {
     console.error('❌ エラー:', error.message);
+    console.error(error.stack);
     process.exit(1);
   }
 }
