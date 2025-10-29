@@ -5,129 +5,110 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-async function generateArticle() {
+async function generateMorningBrief() {
   try {
-    const topic = process.env.TOPIC || 'ラグジュアリーブランドの最新トレンド';
-    const targetAudience = process.env.TARGET_AUDIENCE || 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル';
-    const thinkingMemo = process.env.THINKING_MEMO || '';
-    const direction = process.env.DIRECTION || '';
-    const focusArea = process.env.FOCUS_AREA || '';
+    console.log('=== 朝刊記事生成開始 ===');
 
     // リサーチ結果を読み込み
     let researchContent = '';
     try {
       researchContent = await fs.readFile('research.md', 'utf-8');
-      console.log('リサーチ結果を読み込みました');
+      console.log('✅ リサーチ結果を読み込みました（', researchContent.length, '文字）');
     } catch (error) {
-      console.warn('research.mdが見つかりません。リサーチなしで記事を生成します。');
-      researchContent = 'リサーチデータなし。一般的な知識に基づいて記事を作成してください。';
+      console.warn('⚠️ research.mdが見つかりません');
+      researchContent = 'リサーチデータなし';
     }
 
-    console.log('記事生成を開始します...');
+    const today = new Date().toLocaleDateString('ja-JP', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric',
+      weekday: 'long'
+    });
 
     const articlePrompt = `
-あなたはラグジュアリーブランド業界の日本法人トップです。MBB、電通、P&G、BOFで経営幹部を歴任した経験を持ち、業界の最前線で活躍するプロフェッショナルです。
+あなたはラグジュアリーブランド業界の日本法人トップです。MBB、電通、P&G、BOFで経営幹部を歴任し、業界の最前線で活躍しています。
 
-${thinkingMemo ? `## あなたの思考メモ\n${thinkingMemo}\n\n` : ''}
+## ミッション
+Bloombergの「Five Things to Start Your Day」のラグジュアリーブランド版を作成してください。
 
-## 執筆条件
-- トピック: ${topic}
-- ターゲット読者: ${targetAudience}
-${direction ? `- 記事の方向性: ${direction}` : ''}
-${focusArea ? `- 深掘り領域: ${focusArea}` : ''}
+## スタイル参考
+- 簡潔で要点を押さえた文章（1ニュースあたり200-300文字）
+- 具体的な数字・企業名を明記
+- 「なぜ重要か」を簡潔に説明
+- プロフェッショナル向けの文体
 
 ## リサーチ結果
 ${researchContent}
 
-## 記事の目的
-ビザスクレベルの、クローズドなラグジュアリーブランド業界情報をNOTE読者に提供する。
-具体的なデータや事例は必ずファクトチェックしてください。
-
-## 基本構成
-1. タイトル: 具体的で検索されやすい、プロフェッショナル向けでクリエイティブな表現
-2. 導入: 200-300文字
-3. 目次: 4-6セクション
-4. 本文: 2,500-3,000文字（各セクションでデータ・事例・分析を提供）
-5. 参考: 最低5つの信頼できる情報源（URL形式）
-6. ハッシュタグ: 8-10個
-
-## 執筆スタイル
-- プロフェッショナルかつ読みやすい
-- データと定性視点のバランス
-- 具体的な企業名・ブランド名を積極的に使用
-- 業界インサイダーの視点
-
-## 注意事項
-- コンサルティングファーム出身であることは記載しない
-- 業界従事者としての実務的な視点を重視
-
-## 出力形式
+## 記事フォーマット
 
 以下のJSON形式で出力してください:
 
 \`\`\`json
 {
-  "title": "記事タイトル",
-  "introduction": "導入文（200-300文字）",
+  "title": "一日を始める前に読んでおきたいラグジュアリーブランド業界のニュース5本 - ${today}",
+  "introduction": "一日を始める前に読んでおきたいラグジュアリーブランド業界のニュース5本",
   "tableOfContents": [
-    "セクション1のタイトル",
-    "セクション2のタイトル",
-    "セクション3のタイトル",
-    "セクション4のタイトル",
-    "まとめと今後の展望"
+    "1. [ニュース1の見出し]",
+    "2. [ニュース2の見出し]",
+    "3. [ニュース3の見出し]",
+    "4. [ニュース4の見出し]",
+    "5. [ニュース5の見出し]"
   ],
-  "content": "# セクション1のタイトル\\n\\n本文...\\n\\n# セクション2のタイトル\\n\\n本文...（Markdown形式、2,500-3,000文字）",
-  "summary": "記事全体の要約（100-150文字）",
+  "content": "# 1. [ニュース1の見出し]\\n\\n[本文200-300文字]\\n\\n# 2. [ニュース2の見出し]\\n\\n[本文200-300文字]\\n\\n# 3. [ニュース3の見出し]\\n\\n[本文200-300文字]\\n\\n# 4. [ニュース4の見出し]\\n\\n[本文200-300文字]\\n\\n# 5. [ニュース5の見出し]\\n\\n[本文200-300文字]\\n\\n---\\n\\n## その他の注目ニュース\\n\\n- [ニュース6の1行要約]\\n- [ニュース7の1行要約]\\n- [ニュース8の1行要約]",
+  "summary": "マーケットで話題になったニュースをお届けします。一日を始めるにあたって押さえておきたいニュースはこちら。",
   "references": [
-    "[参考文献1のタイトル](URL1)",
-    "[参考文献2のタイトル](URL2)",
-    "[参考文献3のタイトル](URL3)",
-    "[参考文献4のタイトル](URL4)",
-    "[参考文献5のタイトル](URL5)"
+    "[参考1](URL1)",
+    "[参考2](URL2)",
+    "[参考3](URL3)",
+    "[参考4](URL4)",
+    "[参考5](URL5)"
   ],
   "tags": [
     "#ラグジュアリーブランド",
-    "#ブランド戦略",
-    "#タグ3",
-    "#タグ4",
-    "#タグ5",
-    "#タグ6",
-    "#タグ7",
-    "#タグ8"
+    "#業界ニュース",
+    "#朝刊",
+    "#ファッションビジネス",
+    "#LVMH",
+    "#Kering",
+    "#市場動向",
+    "#最新トレンド"
   ]
 }
 \`\`\`
 
-JSON以外のテキストは出力しないでください。
+**重要な執筆ルール**:
+- 各ニュースは250-300文字に収める（簡潔に）
+- 「〜と報じられた」「〜を発表した」など、事実ベースで
+- 具体的な数字・企業名・日付を必ず含める
+- 業界への影響を1-2行で簡潔に説明
+- 全体で1,500-2,000文字（読了時間3-5分）
+
+JSON以外は出力しないでください。
 `;
 
-    console.log('Claude APIにリクエスト中...');
+    console.log('Claude APIにリクエスト送信...');
 
     const message = await anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 8000,
+      max_tokens: 6000,
       temperature: 0.7,
-      messages: [
-        {
-          role: 'user',
-          content: articlePrompt
-        }
-      ]
+      messages: [{ role: 'user', content: articlePrompt }]
     });
 
     const responseText = message.content[0].text;
-    console.log('Claude APIからの応答を受信しました');
+    console.log('✅ Claude APIからの応答を受信');
 
     // JSONの抽出
-    let articleData;
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/) || 
                      responseText.match(/(\{[\s\S]*\})/);
     
-    if (jsonMatch) {
-      articleData = JSON.parse(jsonMatch[1]);
-    } else {
+    if (!jsonMatch) {
       throw new Error('JSONが見つかりませんでした');
     }
+
+    const articleData = JSON.parse(jsonMatch[1]);
 
     // 必須フィールドの検証
     const requiredFields = ['title', 'content', 'summary', 'tags', 'references'];
@@ -142,22 +123,20 @@ JSON以外のテキストは出力しないでください。
     console.log('✅ draft.jsonを生成しました');
 
     // generated_article.mdにも保存
-    const markdownContent = `# ${articleData.title}\n\n${articleData.introduction || ''}\n\n${articleData.content}\n\n## 参考\n${articleData.references.join('\n')}\n\n${articleData.tags.join(' ')}`;
+    const markdownContent = `# ${articleData.title}\n\n${articleData.introduction}\n\n${articleData.content}\n\n## 参考\n${articleData.references.join('\n')}\n\n${articleData.tags.join(' ')}`;
     await fs.writeFile('generated_article.md', markdownContent);
     console.log('✅ generated_article.mdを生成しました');
 
-    console.log('\n=== 生成された記事 ===');
+    console.log('\n=== 生成された朝刊 ===');
     console.log('タイトル:', articleData.title);
     console.log('文字数:', articleData.content.length);
-    console.log('タグ数:', articleData.tags.length);
-    console.log('参考文献数:', articleData.references.length);
 
   } catch (error) {
-    console.error('❌ エラーが発生しました:', error.message);
+    console.error('❌ エラー:', error.message);
     console.error(error.stack);
     process.exit(1);
   }
 }
 
-generateArticle();
+generateMorningBrief();
 
