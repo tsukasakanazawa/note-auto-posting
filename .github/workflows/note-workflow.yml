@@ -1,30 +1,9 @@
-name: Auto Post to Note
+name: Luxury Morning Brief
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 毎日午前9時(JST)に実行
+    - cron: '0 21 * * *'  # 毎日午前6時(JST) = 21:00(UTC)
   workflow_dispatch:      # 手動実行も可能
-    inputs:
-      topic:
-        description: '記事のトピック（空欄可）'
-        required: false
-        default: ''
-      target_audience:
-        description: 'ターゲット読者'
-        required: false
-        default: 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル'
-      thinking_memo:
-        description: '思考メモ（書きたい内容、気になっていること、断片的なアイデアなど自由にコピペ）'
-        required: false
-        default: ''
-      direction:
-        description: '記事の方向性（分析系/事例紹介/トレンド解説/実務Tips など、空欄可）'
-        required: false
-        default: ''
-      focus_area:
-        description: '特に深掘りしたい領域（ブランド名、地域、テーマなど、空欄可）'
-        required: false
-        default: ''
 
 jobs:
   research:
@@ -41,15 +20,10 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run research
+      - name: Run daily research
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          TOPIC: ${{ github.event.inputs.topic || '' }}
-          TARGET_AUDIENCE: ${{ github.event.inputs.target_audience || 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル' }}
-          THINKING_MEMO: ${{ github.event.inputs.thinking_memo || '' }}
-          DIRECTION: ${{ github.event.inputs.direction || '' }}
-          FOCUS_AREA: ${{ github.event.inputs.focus_area || '' }}
-        run: node research.mjs
+        run: node research-daily.mjs
 
       - name: Upload research results
         uses: actions/upload-artifact@v4
@@ -60,6 +34,7 @@ jobs:
   write:
     needs: research
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -77,15 +52,10 @@ jobs:
         with:
           name: research-results
 
-      - name: Generate article
+      - name: Generate morning brief
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          TOPIC: ${{ github.event.inputs.topic || '' }}
-          TARGET_AUDIENCE: ${{ github.event.inputs.target_audience || 'ラグジュアリーブランドやMBB、コンサル業界のプロフェッショナル' }}
-          THINKING_MEMO: ${{ github.event.inputs.thinking_memo || '' }}
-          DIRECTION: ${{ github.event.inputs.direction || '' }}
-          FOCUS_AREA: ${{ github.event.inputs.focus_area || '' }}
-        run: node ai-writer.mjs
+        run: node ai-writer-daily.mjs
 
       - name: Upload draft
         uses: actions/upload-artifact@v4
