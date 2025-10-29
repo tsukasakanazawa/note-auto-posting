@@ -49,7 +49,7 @@ JSON以外出力禁止。各ニュース250-300文字、具体的な企業名・
     console.log('Claude APIリクエスト中...');
 
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-haiku-20241022',  // ✅ Haikuに変更
+      model: 'claude-3-5-haiku-20241022',
       max_tokens: 6000,
       temperature: 0.7,
       messages: [{ role: 'user', content: articlePrompt }]
@@ -57,23 +57,56 @@ JSON以外出力禁止。各ニュース250-300文字、具体的な企業名・
 
     const responseText = message.content[0].text;
     console.log('✅ 応答受信');
+    console.log('レスポンス最初の500文字:', responseText.substring(0, 500));
 
-    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/) || 
-                     responseText.match(/(\{[\s\S]*\})/);
+    // JSONを抽出（より堅牢に）
+    let jsonText = '';
     
-    if (!jsonMatch) throw new Error('JSON未発見');
+    // まず ```json ブロックを探す
+    const jsonBlockMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+    if (jsonBlockMatch) {
+      jsonText = jsonBlockMatch[1].trim();
+      console.log('✅ ```json ブロック発見');
+    } else {
+      // { で始まり } で終わる部分を探す
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonText = jsonMatch[0].trim();
+        console.log('✅ JSON構造発見');
+      } else {
+        console.error('❌ JSON未発見');
+        console.error('レスポンス全文:', responseText);
+        throw new Error('JSON未発見');
+      }
+    }
 
-    const articleData = JSON.parse(jsonMatch[1]);
+    console.log('JSON抽出成功、文字数:', jsonText.length);
+    console.log('JSON最初の200文字:', jsonText.substring(0, 200));
+
+    // JSONをパース
+    let articleData;
+    try {
+      articleData = JSON.parse(jsonText);
+      console.log('✅ JSONパース成功');
+    } catch (parseError) {
+      console.error('❌ JSONパースエラー:', parseError.message);
+      console.error('パース失敗したJSON:', jsonText);
+      throw parseError;
+    }
 
     const requiredFields = ['title', 'content', 'summary', 'tags', 'references'];
     for (const field of requiredFields) {
-      if (!articleData[field]) throw new Error(`${field}未定義`);
+      if (!articleData[field]) {
+        console.error(`❌ ${field}未定義`);
+        console.error('受信したデータ:', articleData);
+        throw new Error(`${field}未定義`);
+      }
     }
 
     await fs.writeFile('draft.json', JSON.stringify(articleData, null, 2));
     console.log('✅ draft.json生成');
 
-    const markdown = `# ${articleData.title}\n\n${articleData.introduction}\n\n${articleData.content}\n\n## 参考\n${articleData.references.join('\n')}\n\n${articleData.tags.join(' ')}`;
+    const markdown = `# ${articleData.title}\n\n${articleData.introduction || ''}\n\n${articleData.content}\n\n## 参考\n${articleData.references.join('\n')}\n\n${articleData.tags.join(' ')}`;
     await fs.writeFile('generated_article.md', markdown);
     console.log('✅ generated_article.md生成');
 
