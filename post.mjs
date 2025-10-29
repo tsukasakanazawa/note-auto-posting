@@ -12,7 +12,6 @@ async function postToNote() {
     console.log('✅ draft.json読み込み完了');
     console.log('タイトル:', draftData.title);
 
-    // 環境変数から認証情報取得
     const email = process.env.NOTE_EMAIL;
     const password = process.env.NOTE_PASSWORD;
 
@@ -23,166 +22,110 @@ async function postToNote() {
     console.log('ブラウザ起動中...');
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      viewport: { width: 1280, height: 720 }
     });
     const page = await context.newPage();
 
-    // noteログインページ
     console.log('ログインページにアクセス中...');
-    await page.goto('https://note.com/login', { waitUntil: 'domcontentloaded' });
+    await page.goto('https://note.com/login');
+    await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(3000);
 
-    // スクリーンショット
-    await page.screenshot({ path: 'login_page.png', fullPage: true });
-    console.log('ログインページのスクリーンショット保存');
+    await page.screenshot({ path: 'step1_login_page.png' });
+    console.log('スクリーンショット: step1_login_page.png');
 
-    // メールアドレス入力（note.comの実際のフィールド）
+    // メールアドレス入力
     console.log('メールアドレス入力中...');
     
-    // note IDまたはメールアドレスのフィールドを探す
-    const emailFieldSelectors = [
-      'input[name="login"]',
-      'input[placeholder*="メールアドレス"]',
-      'input[placeholder*="note ID"]',
-      'input[type="text"]'
-    ];
-
-    let emailFilled = false;
-    for (const selector of emailFieldSelectors) {
+    // 方法1: input[name="login"] を試す
+    try {
+      const loginField = await page.locator('input[name="login"]').first();
+      await loginField.waitFor({ state: 'visible', timeout: 10000 });
+      await loginField.click();
+      await loginField.fill(email);
+      console.log('✅ input[name="login"] で入力成功');
+    } catch (e1) {
+      console.log('⚠️ input[name="login"] 失敗、他の方法を試します');
+      
+      // 方法2: 最初のテキスト入力を使う
       try {
-        const field = await page.waitForSelector(selector, { timeout: 5000, state: 'visible' });
-        if (field) {
-          console.log('メールアドレスフィールド発見:', selector);
-          await page.click(selector);
-          await page.fill(selector, email);
-          emailFilled = true;
-          break;
+        const textInputs = await page.locator('input[type="text"]').all();
+        if (textInputs.length > 0) {
+          await textInputs[0].click();
+          await textInputs[0].fill(email);
+          console.log('✅ input[type="text"] で入力成功');
+        } else {
+          throw new Error('テキスト入力フィールドが見つかりません');
         }
-      } catch (e) {
-        console.log('セレクタ失敗:', selector);
+      } catch (e2) {
+        console.log('⚠️ input[type="text"] も失敗');
+        
+        // 方法3: 全てのinputを探す
+        const allInputs = await page.locator('input').all();
+        console.log('ページ内のinput要素数:', allInputs.length);
+        
+        if (allInputs.length > 0) {
+          // パスワード以外の最初のinput
+          for (const input of allInputs) {
+            const inputType = await input.getAttribute('type');
+            if (inputType !== 'password' && inputType !== 'submit') {
+              await input.click();
+              await input.fill(email);
+              console.log('✅ 最初の利用可能なinputで入力成功');
+              break;
+            }
+          }
+        } else {
+          throw new Error('入力フィールドが全く見つかりません');
+        }
       }
-    }
-
-    if (!emailFilled) {
-      // 全ての input[type="text"] を探す
-      const textInputs = await page.$$('input[type="text"]');
-      if (textInputs.length > 0) {
-        console.log('最初のテキスト入力フィールドを使用');
-        await textInputs[0].click();
-        await textInputs[0].fill(email);
-        emailFilled = true;
-      }
-    }
-
-    if (!emailFilled) {
-      throw new Error('メールアドレス入力フィールドが見つかりません');
     }
 
     await page.waitForTimeout(1000);
+    await page.screenshot({ path: 'step2_email_filled.png' });
 
     // パスワード入力
     console.log('パスワード入力中...');
-    const passwordField = await page.waitForSelector('input[type="password"]', { timeout: 5000, state: 'visible' });
+    const passwordField = await page.locator('input[type="password"]').first();
+    await passwordField.waitFor({ state: 'visible', timeout: 10000 });
     await passwordField.click();
     await passwordField.fill(password);
-    
-    await page.waitForTimeout(1000);
+    console.log('✅ パスワード入力完了');
 
-    await page.screenshot({ path: 'login_filled.png', fullPage: true });
-    console.log('入力完了時のスクリーンショット保存');
+    await page.waitForTimeout(1000);
+    await page.screenshot({ path: 'step3_password_filled.png' });
 
     // ログインボタンをクリック
     console.log('ログインボタンをクリック中...');
-    const loginButtonSelectors = [
-      'button:has-text("ログイン")',
-      'button[type="submit"]',
-      'input[type="submit"]'
-    ];
+    const loginButton = await page.locator('button:has-text("ログイン")').first();
+    await loginButton.waitFor({ state: 'visible', timeout: 10000 });
+    await loginButton.click();
+    console.log('✅ ログインボタンクリック完了');
 
-    let loginClicked = false;
-    for (const selector of loginButtonSelectors) {
-      try {
-        const button = await page.waitForSelector(selector, { timeout: 3000, state: 'visible' });
-        if (button) {
-          console.log('ログインボタン発見:', selector);
-          await button.click();
-          loginClicked = true;
-          break;
-        }
-      } catch (e) {
-        console.log('セレクタ失敗:', selector);
-      }
-    }
-
-    if (!loginClicked) {
-      // テキストで「ログイン」を含むボタンを探す
-      const buttons = await page.$$('button');
-      for (const button of buttons) {
-        const text = await button.textContent();
-        if (text && text.includes('ログイン')) {
-          console.log('テキスト検索でログインボタン発見');
-          await button.click();
-          loginClicked = true;
-          break;
-        }
-      }
-    }
-
-    if (!loginClicked) {
-      throw new Error('ログインボタンが見つかりません');
-    }
-
-    console.log('ログイン処理中...');
     await page.waitForTimeout(5000);
-
-    // ログイン後の確認
-    await page.screenshot({ path: 'after_login.png', fullPage: true });
-    console.log('ログイン後のスクリーンショット保存');
+    await page.screenshot({ path: 'step4_after_login.png' });
 
     const currentUrl = page.url();
-    console.log('現在のURL:', currentUrl);
+    console.log('ログイン後のURL:', currentUrl);
 
     if (currentUrl.includes('/login')) {
-      throw new Error('ログインに失敗しました（まだログインページにいます）');
+      throw new Error('ログインに失敗しました');
     }
 
     // 記事作成ページへ
     console.log('記事作成ページへ移動中...');
-    await page.goto('https://note.com/post', { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(4000);
-
-    await page.screenshot({ path: 'post_page.png', fullPage: true });
-    console.log('記事作成ページのスクリーンショット保存');
+    await page.goto('https://note.com/post');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
+    await page.screenshot({ path: 'step5_post_page.png' });
 
     // タイトル入力
     console.log('タイトル入力中...');
-    const titleSelectors = [
-      'textarea[placeholder*="タイトル"]',
-      'input[placeholder*="タイトル"]',
-      'textarea[name="title"]',
-      '[data-placeholder*="タイトル"]'
-    ];
-
-    let titleFilled = false;
-    for (const selector of titleSelectors) {
-      try {
-        const field = await page.waitForSelector(selector, { timeout: 5000, state: 'visible' });
-        if (field) {
-          console.log('タイトルフィールド発見:', selector);
-          await field.click();
-          await field.fill(draftData.title);
-          titleFilled = true;
-          break;
-        }
-      } catch (e) {
-        console.log('セレクタ失敗:', selector);
-      }
-    }
-
-    if (!titleFilled) {
-      console.warn('⚠️ タイトル入力フィールドが見つかりません');
-    }
+    const titleField = await page.locator('textarea[placeholder*="タイトル"], input[placeholder*="タイトル"]').first();
+    await titleField.waitFor({ state: 'visible', timeout: 10000 });
+    await titleField.click();
+    await titleField.fill(draftData.title);
+    console.log('✅ タイトル入力完了');
 
     await page.waitForTimeout(1000);
 
@@ -190,122 +133,60 @@ async function postToNote() {
     console.log('本文入力中...');
     const fullContent = `${draftData.introduction || ''}\n\n${draftData.content}\n\n## 参考\n${draftData.references.join('\n')}\n\n${draftData.tags.join(' ')}`;
 
-    const contentSelectors = [
-      '[contenteditable="true"]',
-      'div[role="textbox"]',
-      'textarea[placeholder*="本文"]'
-    ];
-
-    let contentFilled = false;
-    for (const selector of contentSelectors) {
-      try {
-        const field = await page.waitForSelector(selector, { timeout: 5000, state: 'visible' });
-        if (field) {
-          console.log('本文フィールド発見:', selector);
-          await field.click();
-          await page.waitForTimeout(500);
-          
-          // contenteditable要素の場合
-          if (selector.includes('contenteditable')) {
-            await page.evaluate((text) => {
-              const editors = document.querySelectorAll('[contenteditable="true"]');
-              // タイトル以外の最初のcontenteditable要素を使用
-              for (let editor of editors) {
-                if (!editor.getAttribute('placeholder')?.includes('タイトル')) {
-                  editor.innerText = text;
-                  break;
-                }
-              }
-            }, fullContent);
-          } else {
-            await field.fill(fullContent);
-          }
-          
-          contentFilled = true;
-          break;
-        }
-      } catch (e) {
-        console.log('セレクタ失敗:', selector);
+    const contentField = await page.locator('[contenteditable="true"]').last();
+    await contentField.waitFor({ state: 'visible', timeout: 10000 });
+    await contentField.click();
+    
+    await page.evaluate((text) => {
+      const editors = document.querySelectorAll('[contenteditable="true"]');
+      if (editors.length > 0) {
+        const mainEditor = editors[editors.length - 1];
+        mainEditor.innerText = text;
       }
-    }
-
-    if (!contentFilled) {
-      console.warn('⚠️ 本文入力フィールドが見つかりません');
-    }
+    }, fullContent);
+    
+    console.log('✅ 本文入力完了');
 
     await page.waitForTimeout(2000);
+    await page.screenshot({ path: 'step6_content_filled.png' });
 
-    await page.screenshot({ path: 'before_publish.png', fullPage: true });
-    console.log('公開前のスクリーンショット保存');
-
-    // 公開設定（下書きではなく公開にする）
-    console.log('公開設定を確認中...');
-    
-    // 「公開する」「投稿する」などのボタンを探す
-    const publishButtonSelectors = [
-      'button:has-text("公開する")',
-      'button:has-text("投稿する")',
-      'a:has-text("公開する")'
-    ];
-
-    let published = false;
-    for (const selector of publishButtonSelectors) {
-      try {
-        const button = await page.waitForSelector(selector, { timeout: 5000, state: 'visible' });
-        if (button) {
-          console.log('公開ボタン発見:', selector);
-          await button.click();
-          await page.waitForTimeout(5000);
-          published = true;
-          break;
-        }
-      } catch (e) {
-        console.log('セレクタ失敗:', selector);
-      }
+    // 公開ボタンをクリック
+    console.log('公開ボタンを探しています...');
+    try {
+      const publishButton = await page.locator('button:has-text("公開する"), button:has-text("投稿する")').first();
+      await publishButton.waitFor({ state: 'visible', timeout: 10000 });
+      await publishButton.click();
+      console.log('✅ 公開ボタンクリック完了');
+      await page.waitForTimeout(5000);
+    } catch (e) {
+      console.log('⚠️ 公開ボタンが見つかりません（下書き保存の可能性）');
     }
 
-    if (!published) {
-      console.log('⚠️ 公開ボタンが見つかりません。下書き保存されている可能性があります。');
-    }
+    await page.screenshot({ path: 'step7_final.png' });
 
-    // 最終確認
     const finalUrl = page.url();
     console.log('最終URL:', finalUrl);
 
-    await page.screenshot({ path: 'final.png', fullPage: true });
-    console.log('最終スクリーンショット保存');
-
-    // 結果を保存
     const result = {
       success: true,
       title: draftData.title,
       url: finalUrl,
-      published: published,
       timestamp: new Date().toISOString()
     };
 
     await fs.writeFile('post_result.json', JSON.stringify(result, null, 2));
-    console.log('✅ post_result.json保存完了');
     console.log('✅ NOTE投稿処理完了！');
 
   } catch (error) {
     console.error('❌ 投稿エラー:', error.message);
-    console.error(error.stack);
 
-    // エラー時のスクリーンショット
     if (browser) {
       try {
-        const contexts = await browser.contexts();
-        if (contexts.length > 0) {
-          const pages = contexts[0].pages();
-          if (pages.length > 0) {
-            await pages[0].screenshot({ path: 'error.png', fullPage: true });
-            console.log('エラー時のスクリーンショット保存');
-          }
+        const page = (await browser.contexts())[0]?.pages()[0];
+        if (page) {
+          await page.screenshot({ path: 'error.png' });
         }
-      } catch (e) {
-        console.error('スクリーンショット保存失敗:', e.message);
-      }
+      } catch (e) {}
     }
 
     const errorResult = {
@@ -319,7 +200,6 @@ async function postToNote() {
   } finally {
     if (browser) {
       await browser.close();
-      console.log('ブラウザクローズ完了');
     }
   }
 }
