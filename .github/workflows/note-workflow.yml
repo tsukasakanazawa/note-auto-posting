@@ -2,31 +2,22 @@ name: Luxury Morning Brief
 
 on:
   schedule:
-    - cron: '0 21 * * *'  # 毎日午前6時(JST) = 21:00(UTC)
-  workflow_dispatch:      # 手動実行も可能
+    - cron: '0 21 * * *'  # 毎朝6時JST
+  workflow_dispatch:
 
 jobs:
   research:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run daily research
+      - run: npm install
+      - run: node research.mjs
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: node research-daily.mjs
-
-      - name: Upload research results
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: research-results
           path: research.md
@@ -36,29 +27,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Download research results
-        uses: actions/download-artifact@v4
+      - run: npm install
+      - uses: actions/download-artifact@v4
         with:
           name: research-results
-
-      - name: Generate morning brief
+      - run: node ai-writer.mjs
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: node ai-writer-daily.mjs
-
-      - name: Upload draft
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: article-draft
           path: |
@@ -69,34 +49,22 @@ jobs:
     needs: write
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium
-
-      - name: Download draft
-        uses: actions/download-artifact@v4
+      - run: npm install
+      - run: npx playwright install chromium
+      - uses: actions/download-artifact@v4
         with:
           name: article-draft
-
-      - name: Post to Note
+      - run: node post.mjs
         env:
           NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
           NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
-        run: node post.mjs
-
-      - name: Upload post results
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: post-results
           path: post_result.json
         if: always()
+
