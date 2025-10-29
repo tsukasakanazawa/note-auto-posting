@@ -62,9 +62,17 @@ jobs:
         env:
           NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
           NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
+      
+      # スクリーンショットをアップロード
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: '*.png'
+        if: always()
+      
       - uses: actions/upload-artifact@v4
         with:
           name: post-results
           path: post_result.json
         if: always()
-
